@@ -5,6 +5,7 @@ using D2BotNG.Data;
 using D2BotNG.Engine;
 using D2BotNG.Legacy.Api;
 using D2BotNG.Legacy.Models;
+using D2BotNG.Rendering;
 using D2BotNG.Utilities;
 using D2BotNG.Windows;
 
@@ -24,6 +25,9 @@ public class D2BSMessageHandler : BackgroundService
     private readonly DataCache _dataCache;
     private readonly WebhookService _webhookService;
     private readonly NotificationQueue _notificationQueue;
+    private readonly DiscordWebhookService _discordWebhookService;
+    private readonly ItemRenderer _itemRenderer;
+    private readonly Paths _paths;
 
     public D2BSMessageHandler(
         ILogger<D2BSMessageHandler> logger,
@@ -34,7 +38,10 @@ public class D2BSMessageHandler : BackgroundService
         MessageService messageService,
         DataCache dataCache,
         WebhookService webhookService,
-        NotificationQueue notificationQueue)
+        NotificationQueue notificationQueue,
+        DiscordWebhookService discordWebhookService,
+        ItemRenderer itemRenderer,
+        Paths paths)
     {
         _logger = logger;
         _messageWindow = messageWindow;
@@ -45,6 +52,9 @@ public class D2BSMessageHandler : BackgroundService
         _dataCache = dataCache;
         _webhookService = webhookService;
         _notificationQueue = notificationQueue;
+        _discordWebhookService = discordWebhookService;
+        _itemRenderer = itemRenderer;
+        _paths = paths;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -102,12 +112,22 @@ public class D2BSMessageHandler : BackgroundService
 
             case "printToConsole":
                 if (args.Length > 0)
-                    HandlePrintToConsole(profile.Name, args);
+                    HandlePrintToConsole(profile, args);
                 break;
 
             case "printToItemLog":
                 if (args.Length > 0 && args[0].Length > 0)
-                    HandlePrintToItemLog(profile.Name, args[0]);
+                    HandlePrintToItemLog(profile, args[0]);
+                break;
+
+            case "saveItem":
+                if (args.Length > 0 && args[0].Length > 0)
+                    HandleSaveItem(args[0]);
+                break;
+
+            case "postToIRC":
+                if (args.Length >= 3 && !string.IsNullOrEmpty(args[0]) && !string.IsNullOrEmpty(args[1]))
+                    HandlePostToIRC(profile, args);
                 break;
 
             case "getProfile":
@@ -275,17 +295,55 @@ public class D2BSMessageHandler : BackgroundService
         await _profileEngine.UpdateProfileAndNotifyAsync(profile);
     }
 
-    private void HandlePrintToItemLog(string profileName, string itemJson)
+    private void HandlePrintToItemLog(Profile profile, string itemJson)
     {
         var legacyItem = JsonSerializer.Deserialize<LegacyItem>(itemJson)!;
-        _messageService.AddMessage(profileName, legacyItem.Title, MessageColor.ColorDefault, legacyItem.ToModern());
+        var item = legacyItem.ToModern();
+        _messageService.AddMessage(profile.Name, legacyItem.Title, MessageColor.ColorDefault, item);
+        _discordWebhookService.PostItem(profile, item);
     }
 
-    private void HandlePrintToConsole(string profileName, string[] args)
+    private void HandlePrintToConsole(Profile profile, string[] args)
     {
         if (args.Length < 1 || args[0].Length < 1) return;
         var message = JsonSerializer.Deserialize<JsonNode>(args[0])!;
-        _messageService.AddMessage(profileName, message["msg"]!.GetValue<string>(), (MessageColor?)message["color"]?.GetValue<int>() ?? MessageColor.ColorDefault);
+        var text = message["msg"]!.GetValue<string>();
+        _messageService.AddMessage(profile.Name, text, (MessageColor?)message["color"]?.GetValue<int>() ?? MessageColor.ColorDefault);
+        _discordWebhookService.PostConsole(profile, text);
+    }
+
+    private void HandleSaveItem(string itemJson)
+    {
+        try
+        {
+            var legacyItem = JsonSerializer.Deserialize<LegacyItem>(itemJson)!;
+            var item = legacyItem.ToModern();
+            var png = _itemRenderer.RenderItemTooltip(item);
+            var imagesDir = Path.Combine(_paths.BasePath, "images");
+            Directory.CreateDirectory(imagesDir);
+            var index = Directory.GetFiles(imagesDir, item.Name + "*").Length + 1;
+            var path = Path.Combine(imagesDir, $"{item.Name}{index}.png");
+            File.WriteAllBytes(path, png);
+            _logger.LogDebug("Saved item screenshot to {Path}", path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save item screenshot");
+        }
+    }
+
+    private void HandlePostToIRC(Profile profile, string[] args)
+    {
+        var combined = $"{args[2]} {args[1]}";
+        switch (args[0])
+        {
+            case "console":
+                _discordWebhookService.PostConsole(profile, combined);
+                break;
+            case "announce":
+                _discordWebhookService.PostAnnounce(profile, combined);
+                break;
+        }
     }
 
     private async Task HandleGetProfileAsync(nint senderHandle, Profile? profile, string[] args)

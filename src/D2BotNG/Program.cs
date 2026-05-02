@@ -35,6 +35,7 @@ internal static class Program
             .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Warning)
             .MinimumLevel.Override("Grpc", LogEventLevel.Warning)
+            .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
             .Filter.With<LoggerRegistry>()
             .WriteTo.Async(a => a.Console())
             .WriteTo.Async(a => a.File("logs/d2bot-.log", rollingInterval: RollingInterval.Day))
@@ -268,6 +269,9 @@ internal static class Program
 
         // Add message service (centralized console messages)
         services.AddSingleton<MessageService>();
+
+        // Add Discord webhook service (per-profile webhooks for items/console/announce)
+        services.AddSingleton<DiscordWebhookService>();
 
         // Add logger registry (per-logger level filtering for UI console)
         services.AddSingleton<LoggerRegistry>();

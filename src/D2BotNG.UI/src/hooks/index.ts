@@ -69,3 +69,7 @@ export { useIsLocalhost } from "./useIsLocalhost";
 
 // Hover capability hook
 export { useHasHover } from "./useHasHover";
+
+// Entry script options hook
+export { useEntryScripts } from "./useEntryScripts";
+export type { EntryScriptOption } from "./useEntryScripts";

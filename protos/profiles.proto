@@ -75,6 +75,16 @@ message Profile {
   uint32 crashes = 63;
   uint32 restarts = 64;
   uint32 key_runs = 65;
+
+  // Discord webhooks (per-profile)
+  repeated DiscordWebhook discord_webhooks = 70;
+}
+
+message DiscordWebhook {
+  string url = 1;
+  bool post_items = 2;     // printToItemLog (renders item PNG, attaches to message)
+  bool post_console = 3;   // printToConsole
+  bool post_announce = 4;  // postToIRC (legacy "announce" hooktype)
 }
 
 message WindowLocation {

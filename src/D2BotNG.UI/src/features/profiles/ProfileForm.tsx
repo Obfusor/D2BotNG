@@ -18,12 +18,16 @@ import {
   PathSelectorDialog,
 } from "@/components/ui";
 import {
+  DiscordWebhooksList,
+  type DiscordWebhookInput,
+} from "@/components/discord/DiscordWebhooksList";
+import {
   useKeyLists,
   useSchedules,
   useProfiles,
   useSettings,
 } from "@/stores/event-store";
-import { fileClient } from "@/lib/grpc-client";
+import { useEntryScripts } from "@/hooks";
 import { Realm, Difficulty, GameMode } from "@/generated/common_pb";
 import type { Profile } from "@/generated/profiles_pb";
 import type { ProfileInput } from "@/hooks/useProfiles";
@@ -124,6 +128,15 @@ export function ProfileForm({
   const [scheduleEnabled, setScheduleEnabled] = useState(
     defaults?.scheduleEnabled ?? true,
   );
+  const [discordWebhooks, setDiscordWebhooks] = useState<DiscordWebhookInput[]>(
+    () =>
+      (defaults?.discordWebhooks ?? []).map((w) => ({
+        url: w.url,
+        postItems: w.postItems,
+        postConsole: w.postConsole,
+        postAnnounce: w.postAnnounce,
+      })),
+  );
 
   // Track which fields have been touched (blurred)
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -131,56 +144,7 @@ export function ProfileForm({
   // Path selector dialog state
   const [showD2PathPicker, setShowD2PathPicker] = useState(false);
 
-  // Entry script options loaded from FileService
-  const [entryScriptOptions, setEntryScriptOptions] = useState<
-    { value: string; label: string }[]
-  >([]);
-
-  // Load available entry scripts from d2bs/*bot/*.dbj
-  useEffect(() => {
-    async function loadEntryScripts() {
-      const basePath = settings?.basePath;
-      if (!basePath) return;
-
-      try {
-        // List directories under basePath/d2bs
-        const d2bsPath = `${basePath}/d2bs`;
-        const d2bsListing = await fileClient.listDirectory({ path: d2bsPath });
-
-        // Find first directory matching *bot (alphabetically)
-        const botDirs = d2bsListing.entries
-          .filter((e) => e.isDirectory && e.name.toLowerCase().endsWith("bot"))
-          .map((e) => e.name)
-          .sort((a, b) => a.localeCompare(b));
-
-        if (botDirs.length === 0) {
-          setEntryScriptOptions([]);
-          return;
-        }
-
-        const botDir = botDirs[0];
-        const botPath = `${d2bsPath}/${botDir}`;
-
-        // List *.dbj files in the bot directory
-        const botListing = await fileClient.listDirectory({ path: botPath });
-        const dbjFiles = botListing.entries
-          .filter(
-            (e) => !e.isDirectory && e.name.toLowerCase().endsWith(".dbj"),
-          )
-          .map((e) => e.name)
-          .sort((a, b) => a.localeCompare(b));
-
-        setEntryScriptOptions(
-          dbjFiles.map((name) => ({ value: name, label: name })),
-        );
-      } catch (err) {
-        console.error("Failed to load entry scripts:", err);
-        setEntryScriptOptions([]);
-      }
-    }
-
-    loadEntryScripts();
-  }, [settings?.basePath]);
+  const entryScriptOptions = useEntryScripts(settings?.basePath);
 
   const handleBlur = useCallback((field: string) => {
     setTouched((prev) => ({ ...prev, [field]: true }));
@@ -211,6 +175,14 @@ export function ProfileForm({
       setWindowX(defaults.windowLocation?.x?.toString() ?? "");
       setWindowY(defaults.windowLocation?.y?.toString() ?? "");
       setScheduleEnabled(defaults.scheduleEnabled ?? true);
+      setDiscordWebhooks(
+        (defaults.discordWebhooks ?? []).map((w) => ({
+          url: w.url,
+          postItems: w.postItems,
+          postConsole: w.postConsole,
+          postAnnounce: w.postAnnounce,
+        })),
+      );
     }
   }, [defaults]);
 
@@ -273,7 +245,8 @@ export function ProfileForm({
     d2Path.trim() !== "" &&
     character.trim() !== "" &&
     entryScript.trim() !== "" &&
-    (!requiresAccount || (account.trim() !== "" && password.trim() !== ""));
+    (!requiresAccount || (account.trim() !== "" && password.trim() !== "")) &&
+    discordWebhooks.every((w) => w.url.trim() !== "");
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -289,6 +262,7 @@ export function ProfileForm({
           entryScript: true,
           account: true,
           password: true,
+          webhooks: true,
         }));
         return;
       }
@@ -318,6 +292,7 @@ export function ProfileForm({
             ? { x: parseInt(windowX, 10), y: parseInt(windowY, 10) }
             : undefined,
         scheduleEnabled,
+        discordWebhooks,
       };
 
       onSubmit(data);
@@ -346,6 +321,7 @@ export function ProfileForm({
       windowX,
       windowY,
       scheduleEnabled,
+      discordWebhooks,
       onSubmit,
     ],
   );
@@ -577,6 +553,28 @@ export function ProfileForm({
                 Switch keys on restart
               </label>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Discord Webhooks"
+            description="Different per profile. For global rules, see Settings - Discord."
+          />
+          <CardContent>
+            <DiscordWebhooksList
+              webhooks={discordWebhooks}
+              onChange={setDiscordWebhooks}
+              idPrefix="profile-webhook"
+              errors={discordWebhooks.map((w) =>
+                touched.webhooks && w.url.trim() === ""
+                  ? "Webhook URL is required"
+                  : undefined,
+              )}
+              onUrlBlur={() =>
+                setTouched((prev) => ({ ...prev, webhooks: true }))
+              }
+            />
           </CardContent>
         </Card>
 

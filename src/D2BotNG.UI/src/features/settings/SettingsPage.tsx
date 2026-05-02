@@ -86,12 +86,14 @@ export function SettingsPage() {
       if (
         updates.token !== undefined ||
         updates.serverId !== undefined ||
+        updates.webhooks !== undefined ||
         updates.enabled === false
       ) {
         setDiscordErrors((prev) => ({
           ...prev,
           ...(updates.token !== undefined ? { token: undefined } : {}),
           ...(updates.serverId !== undefined ? { serverId: undefined } : {}),
+          ...(updates.webhooks !== undefined ? { webhookUrls: undefined } : {}),
           ...(updates.enabled === false
             ? { token: undefined, serverId: undefined }
             : {}),
@@ -183,6 +185,14 @@ export function SettingsPage() {
       if (!discord.serverId?.trim()) {
         errors.serverId = "Server ID is required when Discord is enabled";
       }
+    }
+
+    const webhooks = discord?.webhooks ?? [];
+    const webhookUrls = webhooks.map((w) =>
+      w.url.trim() === "" ? "Webhook URL is required" : undefined,
+    );
+    if (webhookUrls.some((e) => e !== undefined)) {
+      errors.webhookUrls = webhookUrls;
     }
 
     return errors;

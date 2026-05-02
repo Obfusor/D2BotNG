@@ -5,6 +5,7 @@ package d2bot;
 option csharp_namespace = "D2BotNG.Core.Protos";
 
 import "google/protobuf/empty.proto";
+import "profiles.proto";
 
 // Settings service - Update returns Empty, new value arrives via events
 service SettingsService {
@@ -77,6 +78,12 @@ message DiscordSettings {
   string token = 2;
   string server_id = 3;
   optional string password = 4;
+
+  // Global webhooks fired for every profile's messages, in addition to any
+  // per-profile webhooks configured on the Profile itself. The username posted
+  // to Discord is the profile name, so messages from different profiles remain
+  // distinguishable in a shared channel.
+  repeated DiscordWebhook webhooks = 5;
 }
 
 message LegacyApiSettings {
