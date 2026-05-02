@@ -42,6 +42,7 @@ Bot data files are stored under the **base path** in `data/ng/` (protobuf JSON f
 | `<base path>/data/ng/keylists.json` | CD key lists |
 | `<base path>/data/ng/schedules.json` | Schedule configs |
 | `<base path>/data/ng/patches.json` | Memory patches (version-specific) |
+| `<base path>/images/` | Item PNGs from the D2BS `saveItem` message |
 
 ### Migration from Legacy Format
 
@@ -62,7 +63,7 @@ No manual steps are required. To force re-migration of a specific file, delete i
 - **Remote Access** - Password-protected web interface accessible from anywhere
 - **Real-time Updates** - gRPC streaming for live profile status, console output, item drops
 - **Item Rendering** - DC6 sprite rendering with proper D2 color palettes and socket overlays
-- **Discord Integration** - Slash commands for remote control (/list, /start, /stop, /restart, /mule, /schedule)
+- **Discord Integration** - Slash commands for remote control (/list, /status, /start, /stop, /restart, /mule, /schedule, /identify) and webhooks for items, console, and announcements
 - **Key Management** - Visual dashboard with round-robin rotation, usage tracking, hold/release
 - **Scheduling** - Automated profile scheduling with time-based rules (supports overnight ranges)
 - **Drag & Drop** - Reorder profiles and groups with drag-and-drop

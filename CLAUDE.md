@@ -33,9 +33,10 @@ src/
       features/          # Page components (profiles, keys, schedules, characters, items, settings)
       components/
         layout/          # Layout, Sidebar, Header, ConsolePanel
+        discord/         # DiscordWebhooksList (shared between profile editor and settings)
         ui/              # Reusable UI library (Button, Card, Dialog, Table, Toast, etc.)
       stores/            # Zustand (event-store, toast-store)
-      hooks/             # React Query mutations + useEventStream
+      hooks/             # React Query mutations + useEventStream + useEntryScripts
       lib/               # gRPC client, auth, DC6 rendering pipeline
         rendering/       # dc6Decoder, paletteManager, itemRenderer, colors
       generated/         # Auto-generated protobuf types (buf generate)
@@ -78,7 +79,7 @@ All defined in `protos/*.proto`, implemented in `src/D2BotNG/Services/*ServiceIm
 
 | Service | Proto | Methods |
 |---------|-------|---------|
-| **ProfileService** | profiles.proto | CRUD, Start/Stop/Restart, ShowWindow/HideWindow, ResetStats, RotateKey, ReleaseKey, SetScheduleEnabled, Reorder, TriggerMule |
+| **ProfileService** | profiles.proto | CRUD, Start/Stop, ShowWindow/HideWindow, ResetStats, RotateKey, ReleaseKey, EnableSchedule/DisableSchedule, Reorder, TriggerMule |
 | **KeyService** | keys.proto | CreateKeyList, UpdateKeyList, DeleteKeyList, HoldKey, ReleaseHeldKey |
 | **ScheduleService** | schedules.proto | Create, Update, Delete |
 | **EventService** | events.proto | StreamEvents (server stream), ClearMessages |
@@ -94,12 +95,12 @@ Frontend uses a single gRPC server-stream for all real-time state:
 
 1. `useEventStream` hook connects to `EventService.StreamEvents()`
 2. Server sends initial snapshots (profiles, key lists, schedules, settings, update status, log levels, console history)
-3. Server streams incremental changes (ProfileStatusChanged, Message, SettingsChanged, etc.)
+3. Server streams incremental changes (ProfileState, Message, Settings, etc.)
 4. Zustand `event-store` processes events and updates state maps
 5. Mutations (create/update/delete) return `Empty` - UI updates arrive via the stream
 6. Auto-reconnect on disconnect with 5s retry
 
-**Event types:** ProfilesSnapshot, KeyListsSnapshot, SchedulesSnapshot, ProfileStatusChanged, Message, SettingsChanged, UpdateStatusChanged, EntitiesChanged, LogLevelsSnapshot
+**Event types:** ProfilesSnapshot, KeyListsSnapshot, SchedulesSnapshot, ProfileState, Message, Settings, UpdateStatus, EntitiesChanged, LogLevelsSnapshot
 
 ## Backend Architecture
 
@@ -128,10 +129,11 @@ Frontend uses a single gRPC server-stream for all real-time state:
 
 ### Services Layer
 - **EventBroadcaster** - Per-client Channel<Event> (unbounded), pub-sub for gRPC streaming
-- **D2BSMessageHandler** - Background service processing WM_COPYDATA messages: heartbeat, updateStatus, printToConsole, uploadItem, rotateKey, etc.
+- **D2BSMessageHandler** - Background service processing WM_COPYDATA messages: heartbeat, updateStatus, printToConsole, printToItemLog, saveItem, postToIRC, uploadItem, rotateKey, etc.
 - **MessageService** - Circular buffer of 10k console messages, thread-safe via `Lock`
 - **AuthInterceptor** - gRPC interceptor checking `x-auth-password` header
 - **DiscordService** - Discord.Net BackgroundService with slash commands (/list, /status, /start, /stop, /restart, /mule, /schedule, /identify), rich embeds, per-user auth, auto-reconnect on settings change
+- **DiscordWebhookService** - Posts profile messages and item PNGs to per-profile and global Discord webhooks; fire-and-forget
 - **UpdateManager** / **UpdateCheckBackgroundService** - Version checking and download management
 - **ErrorDialogWatcher** - Monitors for game error dialogs
 - **DataCache** - Transient key-value store for D2BS data retrieve/store
@@ -166,7 +168,7 @@ Backward-compatible HTTP API for legacy D2Bot# tools (e.g., Limedrop, D2BS scrip
 /keys               KeysPage (key list CRUD, hold/release, usage tracking)
 /schedules          SchedulesPage (schedule CRUD, time period management)
 /characters         CharactersPage (entity tree, item search, virtual list)
-/settings           SettingsPage (general, server, discord, display, game, legacy API, logging)
+/settings           SettingsPage (tabs: General, Discord, Legacy API, Logging)
 ```
 
 ### Key Patterns
@@ -189,6 +191,8 @@ Bot data in `data/ng/` directory (protobuf JSON format, location determined by `
 | `keylists.json` | CD key lists (protobuf `KeyListCollection`) |
 | `schedules.json` | Schedules with time periods (protobuf `ScheduleList`) |
 | `patches.json` | Version-specific binary memory patches (protobuf `PatchList`) |
+
+Item PNGs from the D2BS `saveItem` message are written to `<BasePath>/images/`.
 
 Legacy JSONL files in `data/` (pre-migration format, auto-migrated on first startup):
 
