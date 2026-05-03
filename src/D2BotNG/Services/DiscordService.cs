@@ -35,6 +35,12 @@ public class DiscordService : BackgroundService
     private static readonly Color ColorError = new(237, 66, 69);     // Red
     private static readonly Color ColorInfo = new(88, 101, 242);     // Blurple
 
+    // Discord limits: 6000 char total per message, 25 fields per embed, 1024 chars per field value.
+    // We send one embed per message and use a safety margin so a chatty status can't blow the cap.
+    private const int MaxFieldsPerEmbed = 25;
+    private const int MaxEmbedContentChars = 5500;
+    private const int MaxStatusFieldLength = 200;
+
     public DiscordService(
         ILogger<DiscordService> logger,
         SettingsRepository settingsRepository,
@@ -359,14 +365,14 @@ public class DiscordService : BackgroundService
             if (command.Data.Name == "list")
             {
                 var embeds = await HandleList();
-                await command.RespondAsync(embeds: embeds, ephemeral: true);
+                await SendEmbedPagesAsync(command, embeds);
                 return;
             }
 
             if (command.Data.Name == "status")
             {
                 var embeds = await HandleStatus(command);
-                await command.RespondAsync(embeds: embeds, ephemeral: true);
+                await SendEmbedPagesAsync(command, embeds);
                 return;
             }
 
@@ -419,7 +425,7 @@ public class DiscordService : BackgroundService
         return Task.FromResult(embed.Build());
     }
 
-    private async Task<Embed[]> HandleList()
+    private async Task<List<Embed>> HandleList()
     {
         var profiles = await _profileRepository.GetAllAsync();
 
@@ -428,30 +434,16 @@ public class DiscordService : BackgroundService
             return [CreateInfoEmbed("Profiles", "No profiles configured.")];
         }
 
-        const int maxFieldsPerEmbed = 25;
-        var embeds = new List<Embed>();
-
-        foreach (var chunk in profiles.Chunk(maxFieldsPerEmbed))
+        return BuildPagedEmbeds("Profiles", ColorInfo, profiles.Select(profile =>
         {
-            var embed = new EmbedBuilder()
-                .WithTitle(embeds.Count == 0 ? "Profiles" : "Profiles (cont.)")
-                .WithColor(ColorInfo);
-
-            foreach (var profile in chunk)
-            {
-                var instance = _profileEngine.GetInstance(profile.Name);
-                var state = instance?.State.ToString() ?? "Stopped";
-                var emoji = GetStateEmoji(instance?.State);
-                embed.AddField($"{emoji} {profile.Name}", $"State: {state}", inline: true);
-            }
-
-            embeds.Add(embed.Build());
-        }
-
-        return embeds.ToArray();
+            var instance = _profileEngine.GetInstance(profile.Name);
+            var state = instance?.State.ToString() ?? "Stopped";
+            var emoji = GetStateEmoji(instance?.State);
+            return ($"{emoji} {profile.Name}", $"State: {state}", true);
+        }));
     }
 
-    private async Task<Embed[]> HandleStatus(SocketSlashCommand command)
+    private async Task<List<Embed>> HandleStatus(SocketSlashCommand command)
     {
         var profileArg = command.Data.Options.First().Value.ToString()!;
         var profiles = await GetTargetProfiles(profileArg);
@@ -461,38 +453,71 @@ public class DiscordService : BackgroundService
             return [CreateErrorEmbed("Not Found", $"Profile '{profileArg}' not found.")];
         }
 
-        const int maxFieldsPerEmbed = 25;
-        var embeds = new List<Embed>();
-
-        foreach (var chunk in profiles.Chunk(maxFieldsPerEmbed))
+        return BuildPagedEmbeds("Profile Status", ColorInfo, profiles.Select(profile =>
         {
-            var embed = new EmbedBuilder()
-                .WithTitle(embeds.Count == 0 ? "Profile Status" : "Profile Status (cont.)")
-                .WithColor(ColorInfo);
+            var instance = _profileEngine.GetInstance(profile.Name);
+            var state = instance?.State.ToString() ?? "Stopped";
+            var emoji = GetStateEmoji(instance?.State);
+            var status = instance?.Status;
 
-            foreach (var profile in chunk)
+            var fieldValue = $"**State:** {state}\n" +
+                             $"**Runs:** {profile.Runs} | **Chickens:** {profile.Chickens}\n" +
+                             $"**Deaths:** {profile.Deaths} | **Crashes:** {profile.Crashes}";
+
+            if (!string.IsNullOrWhiteSpace(status))
             {
-                var instance = _profileEngine.GetInstance(profile.Name);
-                var state = instance?.State.ToString() ?? "Stopped";
-                var emoji = GetStateEmoji(instance?.State);
-                var status = instance?.Status ?? "N/A";
-
-                var fieldValue = $"**State:** {state}\n" +
-                               $"**Runs:** {profile.Runs} | **Chickens:** {profile.Chickens}\n" +
-                               $"**Deaths:** {profile.Deaths} | **Crashes:** {profile.Crashes}";
-
-                if (!string.IsNullOrWhiteSpace(status))
-                {
-                    fieldValue += $"\n**Status:** {status}";
-                }
-
-                embed.AddField($"{emoji} {profile.Name}", fieldValue);
+                var truncated = status.Length > MaxStatusFieldLength
+                    ? string.Concat(status.AsSpan(0, MaxStatusFieldLength - 1), "…")
+                    : status;
+                fieldValue += $"\n**Status:** {truncated}";
             }
 
-            embeds.Add(embed.Build());
+            return ($"{emoji} {profile.Name}", fieldValue, false);
+        }));
+    }
+
+    private static List<Embed> BuildPagedEmbeds(
+        string baseTitle,
+        Color color,
+        IEnumerable<(string name, string value, bool inline)> fields)
+    {
+        var pages = new List<Embed>();
+        EmbedBuilder? current = null;
+        var currentFields = 0;
+        var currentChars = 0;
+
+        foreach (var (name, value, inline) in fields)
+        {
+            var addChars = name.Length + value.Length;
+
+            if (current == null
+                || currentFields >= MaxFieldsPerEmbed
+                || currentChars + addChars > MaxEmbedContentChars)
+            {
+                if (current != null) pages.Add(current.Build());
+                var title = pages.Count == 0 ? baseTitle : $"{baseTitle} (cont.)";
+                current = new EmbedBuilder().WithTitle(title).WithColor(color);
+                currentFields = 0;
+                currentChars = title.Length;
+            }
+
+            current.AddField(name, value, inline);
+            currentFields++;
+            currentChars += addChars;
         }
 
-        return embeds.ToArray();
+        if (current != null && currentFields > 0) pages.Add(current.Build());
+        return pages;
+    }
+
+    private static async Task SendEmbedPagesAsync(SocketSlashCommand command, IReadOnlyList<Embed> embeds)
+    {
+        if (embeds.Count == 0) return;
+        await command.RespondAsync(embed: embeds[0], ephemeral: true);
+        for (var i = 1; i < embeds.Count; i++)
+        {
+            await command.FollowupAsync(embed: embeds[i], ephemeral: true);
+        }
     }
 
     private async Task<Embed> HandleStart(SocketSlashCommand command)

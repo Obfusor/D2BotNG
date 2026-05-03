@@ -181,9 +181,8 @@ public class ItemRenderer
         using var bitmap = new Bitmap(totalWidth, totalHeight, PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(bitmap);
 
-        // Graphics settings (match reference implementation)
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        graphics.TextRenderingHint = TextRenderingHint.SingleBitPerPixelGridFit;
+        graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
         // Black background
         graphics.Clear(Color.Black);
