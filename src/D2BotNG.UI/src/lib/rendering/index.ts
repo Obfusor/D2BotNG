@@ -15,7 +15,11 @@ export {
   clearCache,
   type RenderOptions,
 } from "./itemRenderer";
-export { clearSpriteCache } from "./spriteCache";
+export {
+  clearSpriteCache,
+  getCachedSprite,
+  makeSpriteKey,
+} from "./spriteCache";
 export {
   D2Colors,
   TextColors,

@@ -5,6 +5,7 @@ using D2BotNG.Core.Protos;
 using D2BotNG.Legacy.Models;
 using D2BotNG.Services;
 using Google.Protobuf.WellKnownTypes;
+using JetBrains.Annotations;
 
 namespace D2BotNG.Data;
 
@@ -93,7 +94,7 @@ public class ItemRepository : IDisposable
         return result.OrderBy(e => e.Path).ToList();
     }
 
-    public record PagedSearchResult(IReadOnlyList<Item> Items, int Total);
+    public record PagedSearchResult(IReadOnlyList<ItemSearchResult> Results, int Total);
 
     /// <summary>
     /// Search items with pagination. Total reflects the full match count
@@ -112,8 +113,7 @@ public class ItemRepository : IDisposable
         var total = all.Count;
         var skipped = clampedOffset > 0 ? all.Skip(clampedOffset) : all;
         var taken = clampedLimit > 0 ? skipped.Take(clampedLimit) : skipped;
-        var page = taken.Select(r => r.Item).ToList();
-        return new PagedSearchResult(page, total);
+        return new PagedSearchResult(taken.ToList(), total);
     }
 
     /// <summary>
@@ -171,7 +171,7 @@ public class ItemRepository : IDisposable
             {
                 if (queryRegex == null || MatchesQuery(item, queryRegex))
                 {
-                    results.Add(new ItemSearchResult(item, account, entity.DisplayName, entity.Mode));
+                    results.Add(new ItemSearchResult(item, path, account, entity.DisplayName, entity.Mode));
                 }
             }
         }
@@ -181,7 +181,7 @@ public class ItemRepository : IDisposable
             .ToList();
     }
 
-    public record ItemSearchResult(Item Item, string Account, string Character, EntityMode Mode);
+    public record ItemSearchResult(Item Item, string EntityPath, string Account, string Character, [UsedImplicitly] EntityMode Mode);
 
     private static bool MatchesQuery(Item item, Regex query)
     {
@@ -189,6 +189,113 @@ public class ItemRepository : IDisposable
                query.IsMatch(item.Description) ||
                query.IsMatch(item.Code) ||
                query.IsMatch(item.Header);
+    }
+
+    /// <summary>
+    /// Remove a single item line from the mule .txt file backing the given entity.
+    /// Matches the first line whose parsed item's full post-$ identifier starts
+    /// with <paramref name="descriptionId"/>. The post-$ chunk encodes
+    /// gid:classid:loc:x:y:base64info and is per-game-session unique, so prefix
+    /// equality is at least as strict as the legacy bot's substring match.
+    /// </summary>
+    /// <returns>true if a matching line was removed and the file rewritten; false if no match.</returns>
+    public async Task<bool> RemoveItemAsync(string entityPath, string descriptionId)
+    {
+        // Reject obvious path-traversal segments and Windows alternate-stream
+        // syntax. The full-path containment check below catches everything else
+        // (rooted paths, UNC, drive-relative paths) — Path.Combine silently
+        // discards the first argument when the second is rooted.
+        var segments = entityPath.Split('/', '\\');
+        if (segments.Any(s => s == ".." || s.Contains(':')))
+        {
+            throw new ArgumentException("entityPath must be a relative path under the mules directory", nameof(entityPath));
+        }
+
+        var platformRelative = entityPath.Replace('/', Path.DirectorySeparatorChar);
+        var filePath = Path.Combine(_mulesDir, platformRelative + ".txt");
+
+        // Defense in depth: reject anything that resolves outside _mulesDir.
+        var fullMules = Path.GetFullPath(_mulesDir);
+        var fullTarget = Path.GetFullPath(filePath);
+        var sep = Path.DirectorySeparatorChar;
+        var fullMulesPrefix = fullMules.TrimEnd(sep) + sep;
+        if (!fullTarget.StartsWith(fullMulesPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("entityPath escapes the mules directory", nameof(entityPath));
+        }
+
+        await _loadLock.WaitAsync();
+        try
+        {
+            if (!File.Exists(filePath))
+            {
+                return false;
+            }
+
+            var lines = await File.ReadAllLinesAsync(filePath);
+            var kept = new List<string>(lines.Length);
+            var matched = false;
+
+            foreach (var line in lines)
+            {
+                if (matched || string.IsNullOrWhiteSpace(line))
+                {
+                    kept.Add(line);
+                    continue;
+                }
+
+                LegacyItem? legacyItem = null;
+                try
+                {
+                    legacyItem = JsonSerializer.Deserialize<LegacyItem>(line);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse item line in {FilePath} during RemoveItemAsync", filePath);
+                }
+
+                if (legacyItem != null)
+                {
+                    var parts = legacyItem.Description.Split('$', 2);
+                    if (parts.Length > 1 && parts[1].StartsWith(descriptionId, StringComparison.Ordinal))
+                    {
+                        matched = true;
+                        continue;
+                    }
+                }
+
+                kept.Add(line);
+            }
+
+            if (!matched)
+            {
+                return false;
+            }
+
+            // Atomic write: write to .tmp then rename over the original.
+            // Use LF line endings to match what D2BS writes — mixing CRLF (Windows
+            // default) with LF would make the file appear malformed if D2BS later
+            // appends to it.
+            var tempPath = filePath + ".tmp";
+            try
+            {
+                await File.WriteAllTextAsync(tempPath, string.Join('\n', kept) + '\n');
+                File.Move(tempPath, filePath, overwrite: true);
+            }
+            catch
+            {
+                // Best-effort cleanup so a crashed/aborted write doesn't leave
+                // a stale .tmp behind. Rethrow the original exception.
+                try { File.Delete(tempPath); } catch { /* ignore */ }
+                throw;
+            }
+
+            return true;
+        }
+        finally
+        {
+            _loadLock.Release();
+        }
     }
 
     private async Task LoadAllEntitiesAsync()

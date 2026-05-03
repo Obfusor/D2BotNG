@@ -13,3 +13,15 @@ export type { ItemImageProps } from "./ItemImage";
 
 export { ItemTooltip, ItemTooltipContent } from "./ItemTooltip";
 export type { ItemTooltipProps } from "./ItemTooltip";
+
+export { useItemContextMenu } from "./useItemContextMenu";
+export type { UseItemContextMenuOptions } from "./useItemContextMenu";
+
+export {
+  copyItemDescription,
+  copyItemImage,
+  saveItemImage,
+  getCleanItemDescription,
+} from "./itemActions";
+
+export { captureItemTooltipBlob } from "./captureItemImage";

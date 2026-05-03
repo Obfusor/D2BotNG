@@ -4,26 +4,71 @@
  * Displays a single item in a card format.
  * Shows item image, name with quality color.
  * Hovering shows the full ItemTooltip.
+ * Right-click reveals a context menu with copy/save/remove actions.
  */
 
-import { memo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 import type { Item } from "@/generated/items_pb";
+import { useRemoveItem } from "@/hooks/useRemoveItem";
+import { DeleteConfirmationDialog } from "@/components/ui/DeleteConfirmationDialog";
 import { ItemImage } from "./ItemImage";
 import { ItemTooltip } from "./ItemTooltip";
+import { useItemContextMenu } from "./useItemContextMenu";
 
 export interface ItemCardProps {
   /** The item to display */
   item: Item;
+  /**
+   * Path of the mule file this item came from. Required to enable the Remove
+   * action; if absent, Remove is hidden from the right-click menu.
+   */
+  entityPath?: string;
   /** Additional CSS classes */
   className?: string;
 }
 
+/**
+ * Extract everything after the first `$` in an item's description.
+ * Mule items embed `gid:classid:loc:x:y:base64info:` after the `$` separator;
+ * the backend matches lines via `StartsWith` against this string.
+ */
+function getDescriptionId(item: Item): string {
+  const desc = item.description ?? "";
+  const idx = desc.indexOf("$");
+  if (idx < 0) return "";
+  return desc.slice(idx + 1);
+}
+
 export const ItemCard = memo(function ItemCard({
   item,
+  entityPath,
   className,
 }: ItemCardProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const removeItem = useRemoveItem();
+
+  const descriptionId = useMemo(() => getDescriptionId(item), [item]);
+  const canRemove =
+    !!entityPath && entityPath.length > 0 && descriptionId.length > 0;
+
+  const handleRemoveRequested = useCallback(() => {
+    setConfirmOpen(true);
+  }, []);
+
+  const handleConfirmRemove = useCallback(() => {
+    if (!entityPath) return;
+    removeItem.mutate(
+      { entityPath, descriptionId },
+      { onSettled: () => setConfirmOpen(false) },
+    );
+  }, [entityPath, descriptionId, removeItem]);
+
+  const { contextMenu, onContextMenu } = useItemContextMenu({
+    item,
+    onRemove: canRemove ? handleRemoveRequested : undefined,
+  });
 
   return (
     <div
@@ -33,6 +78,7 @@ export const ItemCard = memo(function ItemCard({
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onContextMenu={onContextMenu}
     >
       {/* Item image with tooltip */}
       <ItemTooltip item={item} showSprite={false}>
@@ -81,6 +127,18 @@ export const ItemCard = memo(function ItemCard({
             </div>
           )}
         </div>
+      )}
+      {contextMenu}
+      {canRemove && (
+        <DeleteConfirmationDialog
+          open={confirmOpen}
+          entityType="Item"
+          entityName={item.name}
+          warningMessage="This will remove the item from the mule file on disk. The action cannot be undone."
+          isPending={removeItem.isPending}
+          onConfirm={handleConfirmRemove}
+          onCancel={() => setConfirmOpen(false)}
+        />
       )}
     </div>
   );

@@ -54,6 +54,10 @@ export { useDeleteDialog } from "./useDeleteDialog";
 // Console hooks
 export { useClearConsole } from "./useClearConsole";
 
+// Item hooks
+export { useRemoveItem } from "./useRemoveItem";
+export type { RemoveItemInput } from "./useRemoveItem";
+
 // Directory listing hook
 export { useDirectoryListing } from "./useDirectoryListing";
 

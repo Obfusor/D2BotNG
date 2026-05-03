@@ -15,4 +15,7 @@ public static class RpcExceptions
 
     public static RpcException FailedPrecondition(string reason) =>
         new(new Status(StatusCode.FailedPrecondition, reason));
+
+    public static RpcException InvalidArgument(string reason) =>
+        new(new Status(StatusCode.InvalidArgument, reason));
 }

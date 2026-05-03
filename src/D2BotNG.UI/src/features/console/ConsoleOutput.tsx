@@ -14,7 +14,7 @@ import clsx from "clsx";
 import { MessageColor } from "@/generated/events_pb";
 import type { Item } from "@/generated/items_pb";
 import type { MessageEntry } from "@/stores/event-store";
-import { ItemTooltipContent } from "@/features/items";
+import { ItemTooltipContent, useItemContextMenu } from "@/features/items";
 import { formatDateTimeParts } from "@/lib/format";
 
 /** Message entry with optional source label for display */
@@ -147,23 +147,25 @@ const CursorTooltip = memo(function CursorTooltip({
 });
 
 /**
- * Single console entry row
+ * Content cell for rows that have an attached item — wires up the cursor
+ * tooltip and right-click context menu. Split out so non-item rows don't
+ * pay the cost of these hooks (the console can hold ~10k virtualized rows).
  */
-const ConsoleRow = memo(function ConsoleRow({
+const ItemContent = memo(function ItemContent({
   entry,
+  colorClass,
 }: {
   entry: MessageEntryWithLabel;
+  colorClass: string;
 }) {
-  const colorClass =
-    messageColorClasses[entry.color] ||
-    messageColorClasses[MessageColor.COLOR_DEFAULT];
-  const { date, time } = formatDateTimeParts(entry.timestamp);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(
     null,
   );
   const rowRef = useRef<HTMLSpanElement>(null);
 
-  const hasItem = entry.item != null;
+  const { contextMenu, onContextMenu } = useItemContextMenu({
+    item: entry.item,
+  });
 
   const handleMouseMove = (e: React.MouseEvent) => {
     setCursorPos({ x: e.clientX, y: e.clientY });
@@ -174,7 +176,6 @@ const ConsoleRow = memo(function ConsoleRow({
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (!hasItem) return;
     const touch = e.touches[0];
     setCursorPos((prev) =>
       prev ? null : { x: touch.clientX, y: touch.clientY },
@@ -196,6 +197,44 @@ const ConsoleRow = memo(function ConsoleRow({
   }, [cursorPos]);
 
   return (
+    <>
+      <span
+        ref={rowRef}
+        className={clsx(
+          "min-w-0 cursor-pointer break-all underline decoration-dotted",
+          colorClass,
+        )}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onTouchStart={handleTouchStart}
+        onContextMenu={onContextMenu}
+      >
+        {renderContentWithLinks(entry.content)}
+        {cursorPos && entry.item && (
+          <CursorTooltip item={entry.item} cursorPos={cursorPos} />
+        )}
+      </span>
+      {contextMenu}
+    </>
+  );
+});
+
+/**
+ * Single console entry row
+ */
+const ConsoleRow = memo(function ConsoleRow({
+  entry,
+}: {
+  entry: MessageEntryWithLabel;
+}) {
+  const colorClass =
+    messageColorClasses[entry.color] ||
+    messageColorClasses[MessageColor.COLOR_DEFAULT];
+  const { date, time } = formatDateTimeParts(entry.timestamp);
+
+  const hasItem = entry.item != null;
+
+  return (
     <div className="grid grid-cols-[auto_1fr] gap-2 border-b border-zinc-800/50 px-2 py-0.5 font-mono text-xs hover:bg-zinc-800/50 sm:grid-cols-[auto_auto_1fr]">
       {/* Timestamp - hidden on mobile, time only on sm, full on lg */}
       <span className="hidden whitespace-nowrap text-zinc-500 sm:inline">
@@ -207,22 +246,13 @@ const ConsoleRow = memo(function ConsoleRow({
       <span className="truncate text-d2-gold">{entry.sourceLabel ?? ""}</span>
 
       {/* Message content */}
-      <span
-        ref={rowRef}
-        className={clsx(
-          "min-w-0 break-all",
-          colorClass,
-          hasItem && "cursor-pointer underline decoration-dotted",
-        )}
-        onMouseMove={hasItem ? handleMouseMove : undefined}
-        onMouseLeave={hasItem ? handleMouseLeave : undefined}
-        onTouchStart={hasItem ? handleTouchStart : undefined}
-      >
-        {renderContentWithLinks(entry.content)}
-        {cursorPos && entry.item && (
-          <CursorTooltip item={entry.item} cursorPos={cursorPos} />
-        )}
-      </span>
+      {hasItem ? (
+        <ItemContent entry={entry} colorClass={colorClass} />
+      ) : (
+        <span className={clsx("min-w-0 break-all", colorClass)}>
+          {renderContentWithLinks(entry.content)}
+        </span>
+      )}
     </div>
   );
 });

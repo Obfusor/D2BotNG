@@ -16,7 +16,7 @@ import {
   SearchItemsRequestSchema,
   ModeFilterSchema,
   type Entity,
-  type Item,
+  type SearchResultItem,
 } from "@/generated/items_pb";
 import { ItemCard } from "@/features/items/ItemCard";
 import {
@@ -271,7 +271,7 @@ function useResponsiveColumns(): number {
 }
 
 interface VirtualItemsGridProps {
-  items: Item[];
+  items: SearchResultItem[];
   hasMore: boolean;
   onLoadMore: () => void;
 }
@@ -362,12 +362,15 @@ function VirtualItemsGrid({
                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
               }}
             >
-              {rowItems.map((item, i) => (
-                <ItemCard
-                  key={`${item.code}-${item.name}-${startIndex + i}`}
-                  item={item}
-                />
-              ))}
+              {rowItems.map((result, i) =>
+                result.item ? (
+                  <ItemCard
+                    key={`${result.item.code}-${result.item.name}-${startIndex + i}`}
+                    item={result.item}
+                    entityPath={result.entityPath}
+                  />
+                ) : null,
+              )}
             </div>
           );
         })}
@@ -413,7 +416,7 @@ export function CharactersPage() {
   const [ladderFilter, setLadderFilter] = useState<boolean | undefined>();
 
   // Items state - paginated, appends as user scrolls
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<SearchResultItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loadingItems, setLoadingItems] = useState(false);
   const fetchTokenRef = useRef(0);
@@ -490,7 +493,7 @@ export function CharactersPage() {
       try {
         const response = await itemClient.search(buildSearchRequest(0));
         if (fetchTokenRef.current !== token) return;
-        setItems(response.items);
+        setItems(response.results);
         setTotalCount(response.total);
       } catch (error) {
         if (fetchTokenRef.current !== token) return;
@@ -517,7 +520,7 @@ export function CharactersPage() {
         buildSearchRequest(items.length),
       );
       if (fetchTokenRef.current !== currentToken) return;
-      setItems((prev) => [...prev, ...response.items]);
+      setItems((prev) => [...prev, ...response.results]);
     } catch (error) {
       console.error("Failed to load more items:", error);
     } finally {

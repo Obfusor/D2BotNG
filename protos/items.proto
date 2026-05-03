@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package d2bot;
 
+import "google/protobuf/empty.proto";
+
 option csharp_namespace = "D2BotNG.Core.Protos";
 
 // Item and entity service
@@ -11,6 +13,9 @@ service ItemService {
 
   // Search items within selected entity path
   rpc Search(SearchItemsRequest) returns (SearchItemsResponse);
+
+  // Remove a single item line from a mule .txt file on disk
+  rpc RemoveItem(RemoveItemRequest) returns (google.protobuf.Empty);
 }
 
 message ListEntitiesRequest {
@@ -51,8 +56,14 @@ message SearchItemsRequest {
 }
 
 message SearchItemsResponse {
-  repeated Item items = 1;
+  repeated SearchResultItem results = 1;
   int32 total = 2;             // Total matching items (for pagination UI)
+}
+
+// One entry of a search response — the item plus its source-file context.
+message SearchResultItem {
+  Item item = 1;
+  string entity_path = 2;  // Mule file path (relative under mules dir, no .txt extension)
 }
 
 message Item {
@@ -63,4 +74,9 @@ message Item {
   uint32 item_color = 5;
   uint32 text_color = 6;
   repeated Item sockets = 7;
+}
+
+message RemoveItemRequest {
+  string entity_path = 1;     // e.g. "EU (AMS)/Kolbot-SoloPlay/Anna#27334/sorceress--SCL-SOR-002AN-Anna.scnl"
+  string description_id = 2;  // The post-$ identifier from the item description, e.g. "1813426114:605:3:9:0"
 }
