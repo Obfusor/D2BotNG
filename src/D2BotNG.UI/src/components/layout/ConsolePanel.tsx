@@ -13,6 +13,7 @@ import {
   TrashIcon,
   ChevronDownIcon as DropdownIcon,
   CheckIcon,
+  CubeIcon,
 } from "@heroicons/react/24/outline";
 import {
   ConsoleOutput,
@@ -30,6 +31,7 @@ const STORAGE_KEY = "d2bot-console-height";
 const STORAGE_COLLAPSED_KEY = "d2bot-console-collapsed";
 const STORAGE_SOURCES_KEY = "d2bot-console-sources";
 const STORAGE_FILTER_KEY = "d2bot-console-filter";
+const STORAGE_ITEMS_ONLY_KEY = "d2bot-console-items-only";
 const DEFAULT_HEIGHT = 200;
 const MIN_HEIGHT = 100;
 const MAX_HEIGHT = 500;
@@ -58,6 +60,12 @@ export function ConsolePanel() {
   const [filter, setFilter] = useState(() => {
     if (typeof window === "undefined") return "";
     return localStorage.getItem(STORAGE_FILTER_KEY) || "";
+  });
+
+  // Items-only filter state
+  const [itemsOnly, setItemsOnly] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(STORAGE_ITEMS_ONLY_KEY) === "true";
   });
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -124,6 +132,10 @@ export function ConsolePanel() {
         .map((msg) => ({ ...msg, sourceLabel: msg.source }));
     }
 
+    if (itemsOnly) {
+      filtered = filtered.filter((msg) => msg.item != null);
+    }
+
     // Apply regex filter if present
     if (filter.trim()) {
       try {
@@ -143,7 +155,7 @@ export function ConsolePanel() {
     }
 
     return { messages: filtered, filterError: false };
-  }, [selectedSources, availableSources, allMessages, filter]);
+  }, [selectedSources, availableSources, allMessages, filter, itemsOnly]);
 
   // Persist selected sources
   useEffect(() => {
@@ -156,6 +168,12 @@ export function ConsolePanel() {
     if (typeof window === "undefined") return;
     localStorage.setItem(STORAGE_FILTER_KEY, filter);
   }, [filter]);
+
+  // Persist items-only toggle
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(STORAGE_ITEMS_ONLY_KEY, String(itemsOnly));
+  }, [itemsOnly]);
 
   // Persist collapsed state
   useEffect(() => {
@@ -334,17 +352,25 @@ export function ConsolePanel() {
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
               className="flex w-28 items-center justify-between rounded bg-zinc-800 px-2 py-1 text-xs font-medium text-zinc-300 ring-1 ring-zinc-700 hover:ring-zinc-600 focus:ring-d2-gold"
             >
-              <span className="truncate">{getDropdownLabel()}</span>
+              <span className="flex min-w-0 items-center gap-1">
+                {itemsOnly && (
+                  <CubeIcon
+                    className="h-3 w-3 shrink-0 text-d2-gold"
+                    title="Items only"
+                  />
+                )}
+                <span className="truncate">{getDropdownLabel()}</span>
+              </span>
               <DropdownIcon
                 className={clsx(
-                  "h-3 w-3 transition-transform",
+                  "h-3 w-3 shrink-0 transition-transform",
                   isDropdownOpen && "rotate-180",
                 )}
               />
             </button>
 
             {isDropdownOpen && (
-              <div className="absolute left-0 top-full z-50 mt-1 min-w-40 max-w-64 rounded bg-zinc-800 py-1 shadow-lg ring-1 ring-zinc-700">
+              <div className="absolute bottom-full left-0 z-50 mb-1 min-w-40 max-w-64 rounded bg-zinc-800 py-1 shadow-lg ring-1 ring-zinc-700">
                 {/* Select All / Deselect All buttons */}
                 <div className="flex gap-1 border-b border-zinc-700 px-2 py-1.5">
                   <button
@@ -392,6 +418,28 @@ export function ConsolePanel() {
                       No sources available
                     </div>
                   )}
+                </div>
+
+                {/* Content filters - separate from sources */}
+                <div className="border-t border-zinc-700 py-1">
+                  <button
+                    onClick={() => setItemsOnly((v) => !v)}
+                    className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-zinc-300 hover:bg-zinc-700"
+                    aria-pressed={itemsOnly}
+                  >
+                    <span
+                      className={clsx(
+                        "flex h-3.5 w-3.5 items-center justify-center rounded border",
+                        itemsOnly
+                          ? "border-d2-gold bg-d2-gold text-zinc-900"
+                          : "border-zinc-600 bg-zinc-800",
+                      )}
+                    >
+                      {itemsOnly && <CheckIcon className="h-2.5 w-2.5" />}
+                    </span>
+                    <CubeIcon className="h-3.5 w-3.5 text-zinc-400" />
+                    <span>Items only</span>
+                  </button>
                 </div>
               </div>
             )}
