@@ -77,7 +77,7 @@ interface EventState {
   logLevels: LogLevelEntry[];
 
   // Actions
-  handleEvent: (event: Event) => void;
+  handleEvents: (events: Event[]) => void;
   clearMessages: (source: string) => void;
   reset: () => void;
 }
@@ -100,129 +100,185 @@ export const useEventStore = create<EventState>((set, get) => ({
 
   setConnected: (connected) => set({ isConnected: connected }),
 
-  handleEvent: (event) => {
-    const eventCase = event.event.case;
-    if (!eventCase) return;
+  handleEvents: (events) => {
+    if (events.length === 0) return;
 
-    switch (eventCase) {
-      // Snapshot events (on connect)
-      case "profilesSnapshot": {
-        const snapshot = event.event.value;
-        const profiles = new Map<string, ProfileWithStatusData>();
-        for (const p of snapshot.profiles) {
-          if (p.profile) {
-            profiles.set(p.profile.name, {
-              profile: p.profile,
-              status: p,
-            });
-          }
-        }
-        // Mark as loaded after receiving profiles snapshot (always first)
-        set({ profiles, hasReceivedInitialData: true });
-        break;
-      }
+    const state = get();
 
-      case "keyListsSnapshot": {
-        const snapshot = event.event.value;
-        const keyLists = new Map<string, KeyListWithUsageData>();
-        for (const k of snapshot.keyLists) {
-          if (k.keyList) {
-            keyLists.set(k.keyList.name, {
-              keyList: k.keyList,
-              usage: k.usage,
-            });
-          }
-        }
-        set({ keyLists });
-        break;
-      }
+    // Working copies — only cloned on first write of the batch.
+    let profiles = state.profiles;
+    let keyLists = state.keyLists;
+    let schedules = state.schedules;
+    let settings = state.settings;
+    let updateStatus = state.updateStatus;
+    let messages = state.messages;
+    let messagesBySource = state.messagesBySource;
+    let logLevels = state.logLevels;
+    let entitiesVersion = state.entitiesVersion;
+    let hasReceivedInitialData = state.hasReceivedInitialData;
 
-      case "schedulesSnapshot": {
-        const snapshot = event.event.value;
-        const schedules = new Map<string, Schedule>();
-        for (const s of snapshot.schedules) {
-          schedules.set(s.name, s);
-        }
-        set({ schedules });
-        break;
-      }
+    let profilesDirty = false;
+    let keyListsDirty = false;
+    let schedulesDirty = false;
+    let settingsDirty = false;
+    let updateStatusDirty = false;
+    let messagesDirty = false;
+    let logLevelsDirty = false;
+    let entitiesVersionDirty = false;
+    let hasReceivedInitialDataDirty = false;
 
-      // Profile events
-      case "profileState": {
-        const state = event.event.value;
-        const profiles = new Map(get().profiles);
-        const existing = profiles.get(state.profileName);
-        if (existing) {
-          profiles.set(state.profileName, {
-            profile: state.profile ?? existing.profile,
-            status: state,
-          });
-          set({ profiles });
-        }
-        break;
-      }
+    // Per-source lists are reference-shared with subscribers; clone each
+    // affected source list at most once per batch, then mutate in place.
+    const clonedSources = new Set<string>();
 
-      // Console messages
-      case "message": {
-        const msg = event.event.value;
-        const entry: MessageEntry = {
-          id: `msg-${messageCounter++}`,
-          source: msg.source,
-          content: msg.content,
-          timestamp: msg.timestamp
-            ? new Date(Number(msg.timestamp.seconds) * 1000)
-            : new Date(),
-          color: msg.color,
-          item: msg.item,
-        };
+    for (const event of events) {
+      const eventCase = event.event.case;
+      if (!eventCase) continue;
 
-        const messages = [...get().messages, entry];
-        const messagesBySource = new Map(get().messagesBySource);
-        const sourceList = messagesBySource.get(entry.source);
-        messagesBySource.set(
-          entry.source,
-          sourceList ? [...sourceList, entry] : [entry],
-        );
-
-        if (messages.length > MAX_MESSAGES) {
-          const trimmed = messages.slice(-MAX_MESSAGES);
-          const rebuiltBySource = new Map<string, MessageEntry[]>();
-          for (const m of trimmed) {
-            let list = rebuiltBySource.get(m.source);
-            if (!list) {
-              list = [];
-              rebuiltBySource.set(m.source, list);
+      switch (eventCase) {
+        case "profilesSnapshot": {
+          const snapshot = event.event.value;
+          const m = new Map<string, ProfileWithStatusData>();
+          for (const p of snapshot.profiles) {
+            if (p.profile) {
+              m.set(p.profile.name, { profile: p.profile, status: p });
             }
-            list.push(m);
           }
-          set({ messages: trimmed, messagesBySource: rebuiltBySource });
-        } else {
-          set({ messages, messagesBySource });
+          profiles = m;
+          profilesDirty = true;
+          hasReceivedInitialData = true;
+          hasReceivedInitialDataDirty = true;
+          break;
         }
-        break;
-      }
 
-      // Settings & Updates
-      case "settings": {
-        set({ settings: event.event.value });
-        break;
-      }
+        case "keyListsSnapshot": {
+          const snapshot = event.event.value;
+          const m = new Map<string, KeyListWithUsageData>();
+          for (const k of snapshot.keyLists) {
+            if (k.keyList) {
+              m.set(k.keyList.name, { keyList: k.keyList, usage: k.usage });
+            }
+          }
+          keyLists = m;
+          keyListsDirty = true;
+          break;
+        }
 
-      case "updateStatus": {
-        set({ updateStatus: event.event.value });
-        break;
-      }
+        case "schedulesSnapshot": {
+          const snapshot = event.event.value;
+          const m = new Map<string, Schedule>();
+          for (const s of snapshot.schedules) {
+            m.set(s.name, s);
+          }
+          schedules = m;
+          schedulesDirty = true;
+          break;
+        }
 
-      case "entitiesChanged": {
-        // Increment version to trigger refetch in CharactersPage
-        set({ entitiesVersion: get().entitiesVersion + 1 });
-        break;
-      }
+        case "profileState": {
+          const stateVal = event.event.value;
+          if (!profilesDirty) {
+            profiles = new Map(profiles);
+            profilesDirty = true;
+          }
+          const existing = profiles.get(stateVal.profileName);
+          if (existing) {
+            profiles.set(stateVal.profileName, {
+              profile: stateVal.profile ?? existing.profile,
+              status: stateVal,
+            });
+          }
+          break;
+        }
 
-      case "logLevelsSnapshot": {
-        set({ logLevels: [...event.event.value.levels] });
-        break;
+        case "message": {
+          const msg = event.event.value;
+          const entry: MessageEntry = {
+            id: `msg-${messageCounter++}`,
+            source: msg.source,
+            content: msg.content,
+            timestamp: msg.timestamp
+              ? new Date(Number(msg.timestamp.seconds) * 1000)
+              : new Date(),
+            color: msg.color,
+            item: msg.item,
+          };
+
+          if (!messagesDirty) {
+            messages = messages.slice();
+            messagesBySource = new Map(messagesBySource);
+            messagesDirty = true;
+          }
+          messages.push(entry);
+
+          let sourceList = messagesBySource.get(entry.source);
+          if (!clonedSources.has(entry.source)) {
+            sourceList = sourceList ? sourceList.slice() : [];
+            messagesBySource.set(entry.source, sourceList);
+            clonedSources.add(entry.source);
+          }
+          sourceList!.push(entry);
+          break;
+        }
+
+        case "settings": {
+          settings = event.event.value;
+          settingsDirty = true;
+          break;
+        }
+
+        case "updateStatus": {
+          updateStatus = event.event.value;
+          updateStatusDirty = true;
+          break;
+        }
+
+        case "entitiesChanged": {
+          entitiesVersion = entitiesVersion + 1;
+          entitiesVersionDirty = true;
+          break;
+        }
+
+        case "logLevelsSnapshot": {
+          logLevels = [...event.event.value.levels];
+          logLevelsDirty = true;
+          break;
+        }
       }
+    }
+
+    // Trim/rebuild once per batch instead of once per message.
+    if (messagesDirty && messages.length > MAX_MESSAGES) {
+      messages = messages.slice(-MAX_MESSAGES);
+      const rebuilt = new Map<string, MessageEntry[]>();
+      for (const m of messages) {
+        let list = rebuilt.get(m.source);
+        if (!list) {
+          list = [];
+          rebuilt.set(m.source, list);
+        }
+        list.push(m);
+      }
+      messagesBySource = rebuilt;
+    }
+
+    const update: Partial<EventState> = {};
+    if (profilesDirty) update.profiles = profiles;
+    if (hasReceivedInitialDataDirty)
+      update.hasReceivedInitialData = hasReceivedInitialData;
+    if (keyListsDirty) update.keyLists = keyLists;
+    if (schedulesDirty) update.schedules = schedules;
+    if (settingsDirty) update.settings = settings;
+    if (updateStatusDirty) update.updateStatus = updateStatus;
+    if (messagesDirty) {
+      update.messages = messages;
+      update.messagesBySource = messagesBySource;
+    }
+    if (logLevelsDirty) update.logLevels = logLevels;
+    if (entitiesVersionDirty) update.entitiesVersion = entitiesVersion;
+
+    if (Object.keys(update).length > 0) {
+      set(update);
     }
   },
 

@@ -8,6 +8,7 @@
 import { useEffect, useRef } from "react";
 import { useEventStore } from "@/stores/event-store";
 import { eventClient } from "@/lib/grpc-client";
+import type { Event } from "@/generated/events_pb";
 
 const RETRY_DELAY_MS = 5000;
 
@@ -22,7 +23,7 @@ const RETRY_DELAY_MS = 5000;
  * - Cleanup on unmount
  */
 export function useEventStream() {
-  const handleEvent = useEventStore((state) => state.handleEvent);
+  const handleEvents = useEventStore((state) => state.handleEvents);
   const setConnected = useEventStore((state) => state.setConnected);
   const reset = useEventStore((state) => state.reset);
   const retryTimeoutRef = useRef<number | null>(null);
@@ -31,6 +32,24 @@ export function useEventStream() {
     const abortController = new AbortController();
     let isActive = true;
     let hasReceivedFirstEvent = false;
+
+    // Buffer events and flush per animation frame so a backend burst (e.g.
+    // 150 simultaneous profile starts) collapses into ~16ms-spaced commits
+    // instead of a render per event.
+    const queue: Event[] = [];
+    let rafHandle: number | null = null;
+
+    function flush() {
+      rafHandle = null;
+      if (!isActive || queue.length === 0) return;
+      const batch = queue.splice(0, queue.length);
+      handleEvents(batch);
+    }
+
+    function scheduleFlush() {
+      if (rafHandle !== null) return;
+      rafHandle = window.requestAnimationFrame(flush);
+    }
 
     async function startStream() {
       hasReceivedFirstEvent = false;
@@ -47,7 +66,8 @@ export function useEventStream() {
             hasReceivedFirstEvent = true;
             setConnected(true);
           }
-          handleEvent(event);
+          queue.push(event);
+          scheduleFlush();
         }
 
         // Stream ended normally (server closed)
@@ -87,10 +107,16 @@ export function useEventStream() {
       abortController.abort();
       reset();
 
+      if (rafHandle !== null) {
+        window.cancelAnimationFrame(rafHandle);
+        rafHandle = null;
+      }
+      queue.length = 0;
+
       if (retryTimeoutRef.current !== null) {
         clearTimeout(retryTimeoutRef.current);
         retryTimeoutRef.current = null;
       }
     };
-  }, [handleEvent, setConnected, reset]);
+  }, [handleEvents, setConnected, reset]);
 }
