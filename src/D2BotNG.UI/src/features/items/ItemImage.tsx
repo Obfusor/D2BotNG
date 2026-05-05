@@ -44,7 +44,10 @@ export const ItemImage = memo(function ItemImage({
       <ItemSprite
         code={item.code}
         colorShift={item.itemColor}
-        ethereal={item.description?.includes("Ethereal")}
+        ethereal={
+          item.description?.includes("Ethereal") ||
+          item.description?.includes(":eth")
+        }
         sockets={showSockets ? item.sockets : []}
         alt={item.name}
       />

@@ -234,7 +234,7 @@ public class ItemRenderer
     private Bitmap RenderItemBitmap(Item item, Color? background = null)
     {
         var frame = GetItemFrame(item.Code);
-        int shiftColor = (int)item.ItemColor;
+        int shiftColor = item.ItemColor;
         bool isEthereal = item.Description.Contains("Ethereal") || item.Description.Contains(":eth");
         bool isSocket = item.Code == "gemsocket";
 

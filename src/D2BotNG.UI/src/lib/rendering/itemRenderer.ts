@@ -80,7 +80,9 @@ export async function renderItemSprite(
   const imageData = new ImageData(frame.width, frame.height);
   const pixels = imageData.data;
 
-  const alpha = ethereal ? 127 : 255;
+  let alpha = 255;
+  if (ethereal) alpha = 127;
+  if (code === "gemsocket") alpha = 100;
 
   for (let y = 0; y < frame.height; y++) {
     for (let x = 0; x < frame.width; x++) {
@@ -378,7 +380,6 @@ export async function renderItemWithSocketsToBitmap(
       const isEmptySocket = socket.code === "gemsocket";
       const socketImageData = await renderItemSprite(socket.code, {
         colorShift: socket.itemColor,
-        ethereal: isEmptySocket,
       });
 
       const socketCanvas = document.createElement("canvas");

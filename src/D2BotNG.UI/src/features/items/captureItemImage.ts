@@ -23,7 +23,9 @@ const nextFrame = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
 const isEthereal = (item: Item) =>
-  item.description?.includes("Ethereal") ?? false;
+  item.description?.includes("Ethereal") ||
+  item.description?.includes(":eth") ||
+  false;
 
 /**
  * Warm the global sprite cache for this item using the same key

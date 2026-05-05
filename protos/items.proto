@@ -71,8 +71,8 @@ message Item {
   string code = 2;
   string name = 3;
   string description = 4;
-  uint32 item_color = 5;
-  uint32 text_color = 6;
+  int32 item_color = 5;
+  int32 text_color = 6;
   repeated Item sockets = 7;
 }
 

@@ -19,10 +19,10 @@ public class LegacyItem
     public string Image { get; init; } = "";
 
     [JsonPropertyName("textColor")]
-    public int TextColor { get; init; }
+    public int TextColor { get; init; } = -1;
 
     [JsonPropertyName("itemColor")]
-    public int ItemColor { get; init; }
+    public int ItemColor { get; init; } = -1;
 
     [JsonPropertyName("header")]
     public string Header { get; init; } = "";
@@ -38,21 +38,21 @@ public class LegacyItem
             Code = Image,
             Name = Title,
             Description = Description,
-            ItemColor = ItemColor >= 0 ? (uint)ItemColor : 0,
-            TextColor = TextColor >= 0 ? (uint)TextColor : 0
+            ItemColor = ItemColor,
+            TextColor = TextColor
         };
 
         foreach (var socketCode in Sockets)
         {
-            var socketItem = new Item();
+            var socketItem = new Item { ItemColor = -1, TextColor = -1 };
 
             if (socketCode.Contains('|'))
             {
                 var parts = socketCode.Split('|');
                 socketItem.Code = parts[0];
-                if (int.TryParse(parts[1], out var color) && color >= 0)
+                if (int.TryParse(parts[1], out var color))
                 {
-                    socketItem.ItemColor = (uint)color;
+                    socketItem.ItemColor = color;
                 }
             }
             else
