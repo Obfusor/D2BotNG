@@ -216,7 +216,7 @@ public class ProcessManager : IDisposable
             out var processInfo))
         {
             var error = Marshal.GetLastWin32Error();
-            _logger.LogError("CreateProcess failed with error {Error}", error);
+            _logger.LogError("CreateProcess failed with error {Error}. Command line: '{CommandLine}', working directory: '{WorkingDirectory}'", error, commandLine, workingDirectory);
             return null;
         }
 

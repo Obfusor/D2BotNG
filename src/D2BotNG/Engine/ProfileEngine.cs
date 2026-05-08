@@ -471,6 +471,20 @@ public class ProfileEngine
                 return;
             }
 
+            if (!File.Exists(profile.D2Path))
+            {
+                await instance.SetErrorAsync($"Executable: '{profile.D2Path}' does not exist");
+                await NotifyProfileStateChangedAsync(profileName);
+                return;
+            }
+
+            if (!Directory.Exists(_paths.D2BSDirectory))
+            {
+                await instance.SetErrorAsync($"D2BS directory: '{_paths.D2BSDirectory}' does not exist");
+                await NotifyProfileStateChangedAsync(profileName);
+                return;
+            }
+
             // Acquire key if needed
             CDKey? acquiredKey = null;
             if (!string.IsNullOrEmpty(profile.KeyList))
