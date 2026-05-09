@@ -478,9 +478,10 @@ public class ProfileEngine
                 return;
             }
 
-            if (!Directory.Exists(_paths.D2BSDirectory))
+            var d2BSPath = Path.Join(_paths.D2BSDirectory, "D2BS.dll");
+            if (!File.Exists(d2BSPath))
             {
-                await instance.SetErrorAsync($"D2BS directory: '{_paths.D2BSDirectory}' does not exist");
+                await instance.SetErrorAsync($"D2BS.dll path: '{d2BSPath}' does not exist");
                 await NotifyProfileStateChangedAsync(profileName);
                 return;
             }
@@ -517,7 +518,7 @@ public class ProfileEngine
             var config = new GameLaunchConfig
             {
                 GamePath = profile.D2Path,
-                D2BSPath = Path.Join(_paths.D2BSDirectory, "D2BS.dll"),
+                D2BSPath = d2BSPath,
                 ProfileName = profileName,
                 Handle = _messageWindow.Handle.ToString(),
 

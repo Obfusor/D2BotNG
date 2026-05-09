@@ -30,16 +30,28 @@ function ContextMenuPortal({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
-    const handleScroll = () => onClose();
+    // Listen for user-driven scroll input only. The plain "scroll" event also
+    // fires for programmatic scrolls — e.g. ConsolePanel auto-scrolls to the
+    // newest row when messages stream in, which would otherwise dismiss this
+    // menu on every batch (very noticeable with debug logging enabled).
+    const handleUserScroll = () => onClose();
 
     document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("scroll", handleScroll, true);
+    document.addEventListener("wheel", handleUserScroll, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("touchmove", handleUserScroll, {
+      capture: true,
+      passive: true,
+    });
 
     return () => {
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("scroll", handleScroll, true);
+      document.removeEventListener("wheel", handleUserScroll, true);
+      document.removeEventListener("touchmove", handleUserScroll, true);
     };
   }, [onClose]);
 
