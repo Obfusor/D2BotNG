@@ -77,3 +77,6 @@ export { useHasHover } from "./useHasHover";
 // Entry script options hook
 export { useEntryScripts } from "./useEntryScripts";
 export type { EntryScriptOption } from "./useEntryScripts";
+
+// Scroll restoration hook
+export { useScrollRestoration } from "./useScrollRestoration";

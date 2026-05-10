@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using D2BotNG.Core.Protos;
 using D2BotNG.Data;
 using D2BotNG.Engine;
@@ -18,6 +19,7 @@ public class DiscordService : BackgroundService
     private readonly SettingsRepository _settingsRepository;
     private readonly ProfileRepository _profileRepository;
     private readonly ProfileEngine _profileEngine;
+    private readonly UpdateManager _updateManager;
 
     private DiscordSocketClient? _client;
     private ulong _guildId;
@@ -45,18 +47,21 @@ public class DiscordService : BackgroundService
         ILogger<DiscordService> logger,
         SettingsRepository settingsRepository,
         ProfileRepository profileRepository,
-        ProfileEngine profileEngine)
+        ProfileEngine profileEngine,
+        UpdateManager updateManager)
     {
         _logger = logger;
         _settingsRepository = settingsRepository;
         _profileRepository = profileRepository;
         _profileEngine = profileEngine;
+        _updateManager = updateManager;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Subscribe to settings changes
         _settingsRepository.SettingsChanged += OnSettingsChanged;
+        _updateManager.UpdateBecameAvailable += OnUpdateBecameAvailable;
 
         try
         {
@@ -69,7 +74,33 @@ public class DiscordService : BackgroundService
         finally
         {
             _settingsRepository.SettingsChanged -= OnSettingsChanged;
+            _updateManager.UpdateBecameAvailable -= OnUpdateBecameAvailable;
             await DisconnectAsync();
+        }
+    }
+
+    private async Task OnUpdateBecameAvailable(string latestVersion)
+    {
+        try
+        {
+            if (_client == null || _client.ConnectionState != ConnectionState.Connected || _guildId == 0) return;
+
+            var guild = _client.GetGuild(_guildId);
+            var channel = guild != null ? PickAnnouncementChannel(guild) : null;
+            if (channel == null) return;
+
+            var embed = new EmbedBuilder()
+                .WithTitle("D2BotNG Update Available")
+                .WithDescription($"A new version (`{latestVersion}`) is available. Use the in-app update prompt to install.")
+                .WithColor(ColorInfo)
+                .WithCurrentTimestamp()
+                .Build();
+
+            await channel.SendMessageAsync(embed: embed);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to post update-available notification");
         }
     }
 
@@ -257,10 +288,7 @@ public class DiscordService : BackgroundService
 
             await RegisterSlashCommandsAsync(guild);
 
-            // Send ready message to the first text channel we can access
-            var textChannel = guild.TextChannels.FirstOrDefault(c =>
-                guild.CurrentUser.GetPermissions(c).SendMessages);
-
+            var textChannel = PickAnnouncementChannel(guild);
             if (textChannel != null)
             {
                 var embed = new EmbedBuilder()
@@ -277,6 +305,18 @@ public class DiscordService : BackgroundService
         {
             _logger.LogError(ex, "Error in Ready handler");
         }
+    }
+
+    // Picks the channel to use for unsolicited announcements (online, update available, ...).
+    // Discord's TextChannels collection isn't sorted, so iterating by Position lands on whatever
+    // channel the server admin happened to drag to the top — pick the first by name instead so
+    // the choice is predictable across guilds.
+    private static SocketTextChannel? PickAnnouncementChannel(SocketGuild guild)
+    {
+        return guild.TextChannels
+            .Where(c => guild.CurrentUser.GetPermissions(c).SendMessages)
+            .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
     }
 
     private async Task RegisterSlashCommandsAsync(IGuild guild)
@@ -345,13 +385,22 @@ public class DiscordService : BackgroundService
 
     private async Task OnSlashCommandExecuted(SocketSlashCommand command)
     {
+        var name = command.Data.Name;
+        // Slash-command interactions expire if no response is sent within 3
+        // seconds. Anything that touches profiles can take longer than that
+        // (especially /stop, where each profile waits up to 5s for graceful
+        // shutdown), so defer up front and follow up with the real result.
+        // /mule and /help/identify are deliberately left out — they're fast
+        // enough that deferring would add a visible "thinking..." delay.
+        var slow = name is "list" or "status" or "start" or "stop" or "restart" or "schedule";
+
         try
         {
             var settings = await _settingsRepository.GetAsync();
             var userId = command.User.Id.ToString();
 
             // Only help and identify are unauthenticated; all other commands require password (if one is set)
-            if (command.Data.Name != "help" && command.Data.Name != "identify")
+            if (name != "help" && name != "identify")
             {
                 if (settings.Discord.HasPassword && !_authenticatedUsers.Contains(userId))
                 {
@@ -361,22 +410,27 @@ public class DiscordService : BackgroundService
                 }
             }
 
+            if (slow)
+            {
+                await command.DeferAsync(ephemeral: true);
+            }
+
             // Commands that return multiple embeds
-            if (command.Data.Name == "list")
+            if (name == "list")
             {
                 var embeds = await HandleList();
                 await SendEmbedPagesAsync(command, embeds);
                 return;
             }
 
-            if (command.Data.Name == "status")
+            if (name == "status")
             {
                 var embeds = await HandleStatus(command);
                 await SendEmbedPagesAsync(command, embeds);
                 return;
             }
 
-            var embed = command.Data.Name switch
+            var embed = name switch
             {
                 "help" => await HandleHelp(settings.Discord.HasPassword),
                 "start" => await HandleStart(command),
@@ -388,19 +442,35 @@ public class DiscordService : BackgroundService
                 _ => CreateErrorEmbed("Unknown Command", "This command is not recognized.")
             };
 
-            await command.RespondAsync(embed: embed, ephemeral: true);
+            await SendEmbedAsync(command, embed);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error handling slash command: {Command}", command.Data.Name);
+            _logger.LogError(ex, "Error handling slash command: {Command}", name);
             try
             {
-                await command.RespondAsync(embed: CreateErrorEmbed("Error", ex.Message), ephemeral: true);
+                await SendEmbedAsync(command, CreateErrorEmbed("Error", ex.Message));
             }
             catch
             {
                 // Already responded or other error
             }
+        }
+    }
+
+    // After DeferAsync, command.HasResponded is true and the original
+    // "thinking..." response slot must be filled with ModifyOriginalResponseAsync;
+    // otherwise we still owe an initial RespondAsync. Centralise the choice so
+    // callers don't have to track deferral state themselves.
+    private static async Task SendEmbedAsync(SocketSlashCommand command, Embed embed)
+    {
+        if (command.HasResponded)
+        {
+            await command.ModifyOriginalResponseAsync(p => p.Embed = embed);
+        }
+        else
+        {
+            await command.RespondAsync(embed: embed, ephemeral: true);
         }
     }
 
@@ -513,7 +583,7 @@ public class DiscordService : BackgroundService
     private static async Task SendEmbedPagesAsync(SocketSlashCommand command, IReadOnlyList<Embed> embeds)
     {
         if (embeds.Count == 0) return;
-        await command.RespondAsync(embed: embeds[0], ephemeral: true);
+        await SendEmbedAsync(command, embeds[0]);
         for (var i = 1; i < embeds.Count; i++)
         {
             await command.FollowupAsync(embed: embeds[i], ephemeral: true);
@@ -530,10 +600,7 @@ public class DiscordService : BackgroundService
             return CreateErrorEmbed("Not Found", $"Profile '{profileArg}' not found.");
         }
 
-        foreach (var profile in profiles)
-        {
-            await _profileEngine.StartProfileAsync(profile.Name);
-        }
+        await Task.WhenAll(profiles.Select(p => _profileEngine.StartProfileAsync(p.Name)));
 
         return CreateSuccessEmbed("Started", $"Started {profiles.Count} profile(s).");
     }
@@ -548,10 +615,7 @@ public class DiscordService : BackgroundService
             return CreateErrorEmbed("Not Found", $"Profile '{profileArg}' not found.");
         }
 
-        foreach (var profile in profiles)
-        {
-            await _profileEngine.StopProfileAsync(profile.Name);
-        }
+        await Task.WhenAll(profiles.Select(p => _profileEngine.StopProfileAsync(p.Name)));
 
         return CreateSuccessEmbed("Stopped", $"Stopped {profiles.Count} profile(s).");
     }
@@ -566,10 +630,7 @@ public class DiscordService : BackgroundService
             return CreateErrorEmbed("Not Found", $"Profile '{profileArg}' not found.");
         }
 
-        foreach (var profile in profiles)
-        {
-            await _profileEngine.RestartProfileAsync(profile.Name);
-        }
+        await Task.WhenAll(profiles.Select(p => _profileEngine.RestartProfileAsync(p.Name)));
 
         return CreateSuccessEmbed("Restarted", $"Restarted {profiles.Count} profile(s).");
     }
@@ -606,15 +667,34 @@ public class DiscordService : BackgroundService
             return CreateErrorEmbed("Not Found", $"Profile '{profileArg}' not found.");
         }
 
-        foreach (var profile in profiles)
+        // Per-task try/catch so a single bad profile doesn't mask the rest:
+        // Task.WhenAll surfaces only one exception, but the other updates
+        // would still have run. Collect failures and report them.
+        var failed = new ConcurrentBag<string>();
+        await Task.WhenAll(profiles.Select(async p =>
         {
-            profile.ScheduleEnabled = enabled;
-            await _profileRepository.UpdateAsync(profile);
-            await _profileEngine.NotifyProfileStateChangedAsync(profile.Name, includeProfile: true);
-        }
+            try
+            {
+                p.ScheduleEnabled = enabled;
+                await _profileRepository.UpdateAsync(p);
+                await _profileEngine.NotifyProfileStateChangedAsync(p.Name, includeProfile: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update schedule for {Profile}", p.Name);
+                failed.Add(p.Name);
+            }
+        }));
 
+        var succeeded = profiles.Count - failed.Count;
         var actionText = enabled ? "enabled" : "disabled";
-        return CreateSuccessEmbed("Schedule Updated", $"Schedule {actionText} for {profiles.Count} profile(s).");
+
+        if (failed.IsEmpty)
+        {
+            return CreateSuccessEmbed("Schedule Updated", $"Schedule {actionText} for {succeeded} profile(s).");
+        }
+        return CreateErrorEmbed("Schedule Partially Updated",
+            $"Schedule {actionText} for {succeeded} profile(s); failed for: {string.Join(", ", failed)}.");
     }
 
     private async Task<Embed> HandleIdentify(SocketSlashCommand command, string userId)

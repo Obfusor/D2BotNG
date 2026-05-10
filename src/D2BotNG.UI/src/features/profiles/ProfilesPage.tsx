@@ -22,6 +22,7 @@ import {
   useDeleteDialog,
   useIsLocalhost,
   useProfileTableColumns,
+  useScrollRestoration,
   PROFILE_COLUMNS,
 } from "@/hooks";
 import { useProfiles, useIsLoading } from "@/stores/event-store";
@@ -41,6 +42,7 @@ import {
 
 export function ProfilesPage() {
   const navigate = useNavigate();
+  useScrollRestoration();
   // Get profiles from event store - data arrives via event stream
   const isLoading = useIsLoading();
   const profilesData = useProfiles();

@@ -25,6 +25,18 @@ public class UpdateManager
 
     private readonly UpdateStatus _currentStatus; // Mutated in place.
     private readonly Lock _statusLock = new();
+    // Serializes CheckForUpdateAsync. The 6h background tick and a manual
+    // gRPC CheckForUpdate could otherwise interleave, both observe
+    // UpdateAvailable==false at the start, both reach the notify step, and
+    // double-fire UpdateBecameAvailable.
+    private readonly SemaphoreSlim _checkLock = new(1, 1);
+
+    /// <summary>
+    /// Fires when an update transitions to being available — either the
+    /// first time it's detected or whenever a newer version supersedes a
+    /// previously-detected one. Payload is the latest version string.
+    /// </summary>
+    public event Func<string, Task>? UpdateBecameAvailable;
 
     public UpdateManager(
         ILogger<UpdateManager> logger,
@@ -90,6 +102,27 @@ public class UpdateManager
             return;
         }
 
+        await _checkLock.WaitAsync(cancellationToken);
+        try
+        {
+            await CheckForUpdateInnerAsync(cancellationToken);
+        }
+        finally
+        {
+            _checkLock.Release();
+        }
+    }
+
+    private async Task CheckForUpdateInnerAsync(CancellationToken cancellationToken)
+    {
+        bool wasAvailable;
+        string previousLatest;
+        lock (_statusLock)
+        {
+            wasAvailable = _currentStatus.UpdateAvailable;
+            previousLatest = _currentStatus.LatestVersion;
+        }
+
         UpdateStatusAndBroadcast(s =>
         {
             s.State = UpdateState.Checking;
@@ -142,6 +175,10 @@ public class UpdateManager
             else
             {
                 _logger.LogInformation("New version {LatestVersion} available!", latestVersion);
+                if (!wasAvailable || !string.Equals(previousLatest, latestVersion, StringComparison.Ordinal))
+                {
+                    await NotifyUpdateBecameAvailableAsync(latestVersion);
+                }
             }
         }
         catch (Exception ex)
@@ -289,6 +326,28 @@ rd /s /q ""{tempDir}"" 2>nul
                 s.State = UpdateState.Error;
                 s.ErrorMessage = ex.Message;
             });
+        }
+    }
+
+    private async Task NotifyUpdateBecameAvailableAsync(string latestVersion)
+    {
+        var handler = UpdateBecameAvailable;
+        if (handler == null) return;
+
+        // Subscribers run sequentially; their exceptions are isolated so a
+        // throwing listener doesn't prevent the rest from being notified. A
+        // genuinely slow handler still blocks the next one — none of the
+        // current subscribers do significant async work, so this is fine.
+        foreach (var sub in handler.GetInvocationList().OfType<Func<string, Task>>())
+        {
+            try
+            {
+                await sub(latestVersion);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "UpdateBecameAvailable subscriber threw");
+            }
         }
     }
 
