@@ -28,6 +28,7 @@ public class D2BSMessageHandler : BackgroundService
     private readonly DiscordWebhookService _discordWebhookService;
     private readonly ItemRenderer _itemRenderer;
     private readonly Paths _paths;
+    private readonly SettingsRepository _settingsRepository;
 
     public D2BSMessageHandler(
         ILogger<D2BSMessageHandler> logger,
@@ -41,7 +42,8 @@ public class D2BSMessageHandler : BackgroundService
         NotificationQueue notificationQueue,
         DiscordWebhookService discordWebhookService,
         ItemRenderer itemRenderer,
-        Paths paths)
+        Paths paths,
+        SettingsRepository settingsRepository)
     {
         _logger = logger;
         _messageWindow = messageWindow;
@@ -55,6 +57,7 @@ public class D2BSMessageHandler : BackgroundService
         _discordWebhookService = discordWebhookService;
         _itemRenderer = itemRenderer;
         _paths = paths;
+        _settingsRepository = settingsRepository;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -318,7 +321,9 @@ public class D2BSMessageHandler : BackgroundService
         {
             var legacyItem = JsonSerializer.Deserialize<LegacyItem>(itemJson)!;
             var item = legacyItem.ToModern();
-            var png = _itemRenderer.RenderItemTooltip(item);
+            var settings = _settingsRepository.GetAsync().GetAwaiter().GetResult();
+            var itemFont = settings.Display?.ItemFont ?? ItemFont.Exocet;
+            var png = _itemRenderer.RenderItemTooltip(item, itemFont);
             var imagesDir = Path.Combine(_paths.BasePath, "images");
             Directory.CreateDirectory(imagesDir);
             var index = Directory.GetFiles(imagesDir, item.Name + "*").Length + 1;

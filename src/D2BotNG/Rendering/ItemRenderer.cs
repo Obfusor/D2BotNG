@@ -18,7 +18,6 @@ public class ItemRenderer
     private const int SingleWidthThreshold = 37;
     private const int TwoRowHeightThreshold = 65;
     private const int ThreeRowHeightThreshold = 95;
-    private const int TextLineHeight = 16;
     private const int SocketSpacing = 14;
     private const int TooltipHeaderHeight = 14;
     private const int TooltipTextPadding = 14;
@@ -168,9 +167,13 @@ public class ItemRenderer
             headerHeight = TooltipHeaderHeight;
         }
 
-        // Calculate dimensions
+        // Calculate dimensions. Line height comes from the selected font's
+        // own metrics — the previous hardcoded 16px matched the embedded
+        // kodia font, but Consolas / Segoe UI render taller and would clip
+        // descenders on the last line of the tooltip.
         int textWidth = CalculateTextWidth(lines, fontFamily);
-        int textHeight = lines.Length * TextLineHeight;
+        int lineHeight = MeasureLineHeight(fontFamily);
+        int textHeight = lines.Length * lineHeight;
         int imageTop = GetImageTop(gridSize.Y);
 
         // Include header width in calculation if present
@@ -207,7 +210,7 @@ public class ItemRenderer
         }
 
         // Render text (offset by header height)
-        RenderDescription(graphics, description, totalWidth, imageTop + headerHeight, fontFamily);
+        RenderDescription(graphics, description, totalWidth, imageTop + headerHeight, fontFamily, lineHeight);
 
         // Render header LAST so it overlays on top of everything (matches reference implementation)
         if (hasHeader)
@@ -517,7 +520,7 @@ public class ItemRenderer
         return positions;
     }
 
-    private void RenderDescription(Graphics graphics, string description, int width, int top, string fontFamily)
+    private void RenderDescription(Graphics graphics, string description, int width, int top, string fontFamily, int lineHeight)
     {
         // Convert escape sequences to actual characters
         string normalized = NormalizeColorCodes(description);
@@ -536,7 +539,7 @@ public class ItemRenderer
 
             // Parse and render colored segments
             RenderColoredLine(graphics, line, font, x, y, ref currentColor);
-            y += TextLineHeight;
+            y += lineHeight;
         }
     }
 
@@ -612,6 +615,14 @@ public class ItemRenderer
         }
 
         return result;
+    }
+
+    private int MeasureLineHeight(string fontFamily)
+    {
+        using var bmp = new Bitmap(1, 1);
+        using var graphics = Graphics.FromImage(bmp);
+        using var font = CreateFont(fontFamily, FontSize);
+        return (int)Math.Ceiling(font.GetHeight(graphics));
     }
 
     private int CalculateTextWidth(string[] lines, string fontFamily)
