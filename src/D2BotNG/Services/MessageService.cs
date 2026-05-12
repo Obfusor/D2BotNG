@@ -1,4 +1,6 @@
+using System.Text.Json;
 using D2BotNG.Core.Protos;
+using D2BotNG.Engine.Handoff;
 using Google.Protobuf.WellKnownTypes;
 using Message = D2BotNG.Core.Protos.Message;
 
@@ -8,7 +10,7 @@ namespace D2BotNG.Services;
 /// Centralized service for all console messages.
 /// Maintains history and broadcasts to all connected clients.
 /// </summary>
-public class MessageService
+public class MessageService : IHandoffParticipant
 {
     private readonly EventBroadcaster _eventBroadcaster;
 
@@ -86,5 +88,43 @@ public class MessageService
             foreach (var m in kept)
                 _history.Enqueue(m);
         }
+    }
+
+    public string HandoffKey => "messages";
+
+    public Task<object?> SnapshotAsync()
+    {
+        lock (_historyLock)
+        {
+            var dtos = _history.Select(m => new MessageDto
+            {
+                Source = m.Source,
+                Content = m.Content,
+                Timestamp = m.Timestamp.ToDateTime(),
+                Color = m.Color
+            }).ToList();
+            return Task.FromResult<object?>(dtos);
+        }
+    }
+
+    public Task RestoreAsync(JsonElement payload, JsonSerializerOptions options)
+    {
+        var dtos = payload.Deserialize<List<MessageDto>>(options) ?? [];
+        lock (_historyLock)
+        {
+            foreach (var d in dtos)
+            {
+                _history.Enqueue(new Message
+                {
+                    Source = d.Source,
+                    Content = d.Content,
+                    Timestamp = Timestamp.FromDateTime(DateTime.SpecifyKind(d.Timestamp, DateTimeKind.Utc)),
+                    Color = d.Color
+                });
+                while (_history.Count > MaxHistorySize)
+                    _history.Dequeue();
+            }
+        }
+        return Task.CompletedTask;
     }
 }

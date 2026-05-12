@@ -1,7 +1,10 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using D2BotNG.Core.Protos;
+using D2BotNG.Engine.Handoff;
 using D2BotNG.Services;
 using Google.Protobuf.WellKnownTypes;
+using JetBrains.Annotations;
 using Serilog.Core;
 using Serilog.Events;
 
@@ -12,7 +15,7 @@ namespace D2BotNG.Logging;
 /// Also serves as a global Serilog ILogEventFilter so all sinks respect the configured levels.
 /// Session-only — levels reset to defaults on restart.
 /// </summary>
-public class LoggerRegistry : ILogEventFilter
+public class LoggerRegistry : ILogEventFilter, IHandoffParticipant
 {
     private const string Prefix = "D2BotNG.";
     private const LogEventLevel DefaultLevel = LogEventLevel.Information;
@@ -25,6 +28,7 @@ public class LoggerRegistry : ILogEventFilter
     /// <summary>
     /// Used by Serilog's Filter.With&lt;T&gt;() — delegates to the DI instance via _instance.
     /// </summary>
+    [UsedImplicitly]
     public LoggerRegistry() { }
 
     /// <summary>
@@ -136,4 +140,22 @@ public class LoggerRegistry : ILogEventFilter
         LogEventLevel.Fatal => SinkLogLevel.Fatal,
         _ => SinkLogLevel.Information
     };
+
+    public string HandoffKey => "logLevels";
+
+    public Task<object?> SnapshotAsync()
+    {
+        var result = new Dictionary<string, SinkLogLevel>();
+        foreach (var (category, level) in _levels)
+            result[category] = MapToProtoLevel(level);
+        return Task.FromResult<object?>(result);
+    }
+
+    public Task RestoreAsync(JsonElement payload, JsonSerializerOptions options)
+    {
+        var levels = payload.Deserialize<Dictionary<string, SinkLogLevel>>(options) ?? [];
+        foreach (var (category, level) in levels)
+            _levels[category] = MapFromProtoLevel(level);
+        return Task.CompletedTask;
+    }
 }

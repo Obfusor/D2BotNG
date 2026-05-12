@@ -27,8 +27,9 @@ public enum MessageType
 }
 
 /// <summary>
-/// Manages a window handle for receiving WM_COPYDATA messages from D2BS.
-/// In GUI mode, uses MainForm.Handle. In headless mode, creates a message-only window.
+/// Owns a hidden message-only window that receives WM_COPYDATA messages from D2BS.
+/// Created early in startup so the HWND is stable for the full process lifetime
+/// (handoff rehydration relies on this).
 /// </summary>
 public class MessageWindow : IDisposable
 {
@@ -36,7 +37,6 @@ public class MessageWindow : IDisposable
     private readonly Channel<D2BSMessage> _messageChannel;
     private nint _wndProcPtr;
     private WndProcDelegate? _wndProcDelegate;
-    private bool _ownsWindow;
     private bool _disposed;
 
     public MessageWindow(ILogger<MessageWindow> logger)
@@ -60,22 +60,8 @@ public class MessageWindow : IDisposable
     public ChannelReader<D2BSMessage> Messages => _messageChannel.Reader;
 
     /// <summary>
-    /// Set the handle to use (call this in GUI mode with MainForm.Handle).
-    /// </summary>
-    public void SetHandle(nint handle)
-    {
-        if (_ownsWindow && Handle != 0)
-        {
-            DestroyWindow(Handle);
-            _ownsWindow = false;
-        }
-
-        Handle = handle;
-        _logger.LogDebug("MessageWindow using external handle: {Handle}", handle);
-    }
-
-    /// <summary>
-    /// Create a message-only window for headless mode.
+    /// Creates the message-only window. Call once from Program.Main before any hosted
+    /// service runs — handoff rehydration reads Handle.
     /// </summary>
     public void CreateMessageOnlyWindow()
     {
@@ -118,7 +104,6 @@ public class MessageWindow : IDisposable
             throw new InvalidOperationException($"Failed to create message window: {error}");
         }
 
-        _ownsWindow = true;
         _logger.LogInformation("Created message-only window with handle: {Handle}", Handle);
     }
 
@@ -139,6 +124,9 @@ public class MessageWindow : IDisposable
 
             var messageType = (MessageType)copyData.dwData.ToInt64();
             var data = Encoding.UTF8.GetString(bytes, 0, length);
+
+            _logger.LogDebug("WM_COPYDATA received: sender={Sender}, type={Type}, len={Len}, data={Data}",
+                wParam, messageType, copyData.cbData, data);
 
             // Normalize heartbeat event.
             if (messageType == MessageType.Heartbeat || data.Contains("heartBeat"))
@@ -190,7 +178,7 @@ public class MessageWindow : IDisposable
 
         _messageChannel.Writer.Complete();
 
-        if (_ownsWindow && Handle != 0)
+        if (Handle != 0)
         {
             DestroyWindow(Handle);
             Handle = 0;

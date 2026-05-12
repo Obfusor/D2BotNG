@@ -2,7 +2,6 @@ using System.Text.Json;
 using D2BotNG.Core.Protos;
 using D2BotNG.Data;
 using D2BotNG.Engine;
-using D2BotNG.Windows;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using static D2BotNG.Windows.NativeMethods;
@@ -25,16 +24,18 @@ public class MainForm : Form
     private readonly string _serverUrl;
     private readonly SettingsRepository _settingsRepository;
     private readonly ProfileEngine _profileEngine;
-    private readonly MessageWindow _messageWindow;
     private bool _isClosing;
     private Rectangle _restoreBounds;
 
-    public MainForm(string serverUrl, SettingsRepository settingsRepository, ProfileEngine profileEngine, MessageWindow messageWindow)
+    public MainForm(string serverUrl, SettingsRepository settingsRepository, ProfileEngine profileEngine, IHostApplicationLifetime appLifetime)
     {
         _serverUrl = serverUrl;
         _settingsRepository = settingsRepository;
         _profileEngine = profileEngine;
-        _messageWindow = messageWindow;
+
+        // When the host asks to stop (e.g. handoff calling StopApplication),
+        // exit Application.Run so the process actually unwinds.
+        appLifetime.ApplicationStopping.Register(ExitApplication);
 
         // Form setup - borderless with resize via WM_NCHITTEST
         Width = 1280;
@@ -87,13 +88,6 @@ public class MainForm : Form
 
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == (int)WM_COPYDATA)
-        {
-            _messageWindow.HandleCopyData(m.WParam, m.LParam);
-            m.Result = 1;
-            return;
-        }
-
         // Intercept system minimize (taskbar right-click, Win+D, etc.) → minimize to tray
         if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_MINIMIZE)
         {
@@ -110,9 +104,6 @@ public class MainForm : Form
 
     private async void OnFormLoad(object? sender, EventArgs e)
     {
-        // Register this form's handle with MessageWindow for WM_COPYDATA routing
-        _messageWindow.SetHandle(Handle);
-
         try
         {
             // Place WebView2's user data (cache, cookies, IndexedDB, crash dumps) under
@@ -350,11 +341,19 @@ public class MainForm : Form
         await _profileEngine.StopAllAsync();
     }
 
-    private void OnExitClick(object? sender, EventArgs e)
+    private void OnExitClick(object? sender, EventArgs e) => ExitApplication();
+
+    private void ExitApplication()
     {
-        _isClosing = true;
-        _trayIcon.Visible = false;
-        Application.Exit();
+        if (IsDisposed) return;
+        if (!IsHandleCreated) { Application.Exit(); return; }
+
+        BeginInvoke(() =>
+        {
+            _isClosing = true;
+            _trayIcon.Visible = false;
+            Application.Exit();
+        });
     }
 
     private static Icon? LoadAppIcon()

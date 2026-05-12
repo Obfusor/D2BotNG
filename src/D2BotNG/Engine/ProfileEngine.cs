@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using D2BotNG.Core.Protos;
 using D2BotNG.Data;
+using D2BotNG.Engine.Handoff;
 using D2BotNG.Services;
 using D2BotNG.Windows;
 using Google.Protobuf.WellKnownTypes;
@@ -27,6 +29,13 @@ public class ProfileEngine
     private const int MaxCrashRetries = 5;
     private const int HeartbeatTimeoutSeconds = 30;
     private const int MaxMissedHeartbeats = 3;
+
+    /// <summary>
+    /// Set when the engine is being torn down for handoff to a successor process.
+    /// In this mode, <see cref="StopAllAsync"/> skips game termination so the children
+    /// survive the predecessor's shutdown and stay assigned to the now-successor-owned job.
+    /// </summary>
+    private bool _handoffInProgress;
 
     public ProfileEngine(
         ILogger<ProfileEngine> logger,
@@ -162,7 +171,7 @@ public class ProfileEngine
         instance.CancelRun();
 
         // Unregister handle before terminating
-        _handleToProfile.TryRemove(instance.Process?.MainWindowHandle ?? 0, out _);
+        _handleToProfile.TryRemove(instance.Process?.GameWindow ?? 0, out _);
 
         if (instance.Process != null)
         {
@@ -204,6 +213,11 @@ public class ProfileEngine
 
     public async Task StopAllAsync(CancellationToken cancellationToken = default)
     {
+        // QuiesceForHandoff already cancelled monitor tokens; bail before we'd try to
+        // terminate the games (which the successor is about to adopt). Defensive: also
+        // covers callers that somehow set _handoffInProgress without calling Quiesce.
+        if (_handoffInProgress) return;
+
         var tasks = _instances.Values
             .Where(i => i.State != RunState.Stopped)
             .Select(i => StopProfileAsync(i.ProfileName, cancellationToken: cancellationToken))
@@ -214,24 +228,26 @@ public class ProfileEngine
 
     public async Task ShowWindowAsync(string profileName)
     {
-        if (!_instances.TryGetValue(profileName, out var instance) ||
-            instance.Process?.MainWindowHandle == 0) return;
+        if (!_instances.TryGetValue(profileName, out var instance) || instance.Process == null) return;
+        var hwnd = instance.Process.GameWindow;
+        if (hwnd == 0) return;
 
         var profile = await _profileRepository.GetByKeyAsync(profileName);
         var loc = profile?.WindowLocation;
         if (loc != null)
-            _processManager.ShowWindowAt(instance.Process!.MainWindowHandle, loc.X, loc.Y);
+            _processManager.ShowWindowAt(hwnd, loc.X, loc.Y);
         else
-            _processManager.ShowWindow(instance.Process!.MainWindowHandle);
+            _processManager.ShowWindow(hwnd);
 
         await NotifyProfileStateChangedAsync(profileName);
     }
 
     public async Task HideWindowAsync(string profileName)
     {
-        if (!_instances.TryGetValue(profileName, out var instance) ||
-            instance.Process?.MainWindowHandle == 0) return;
-        _processManager.HideWindow(instance.Process!.MainWindowHandle);
+        if (!_instances.TryGetValue(profileName, out var instance) || instance.Process == null) return;
+        var hwnd = instance.Process.GameWindow;
+        if (hwnd == 0) return;
+        _processManager.HideWindow(hwnd);
         await NotifyProfileStateChangedAsync(profileName);
     }
 
@@ -534,9 +550,9 @@ public class ProfileEngine
             instance.SetGameProcess(gameProcess);
 
             // Register handle for message routing
-            if (gameProcess.MainWindowHandle != 0)
+            if (gameProcess.GameWindow != 0)
             {
-                _handleToProfile[gameProcess.MainWindowHandle] = profileName;
+                _handleToProfile[gameProcess.GameWindow] = profileName;
             }
 
             if (!await instance.TransitionToAsync(RunState.Running))
@@ -558,7 +574,7 @@ public class ProfileEngine
             _logger.LogError(ex, "Error running profile {Name}", profileName);
 
             // Clean up handle mapping
-            if (instance.Process?.MainWindowHandle is > 0 and var handle)
+            if (instance.Process?.GameWindow is > 0 and var handle)
                 _handleToProfile.TryRemove(handle, out _);
 
             await instance.SetErrorAsync(ex.Message);
@@ -585,7 +601,7 @@ public class ProfileEngine
                 _logger.LogDebug("Profile {Name} process exited with code {Code}",
                     instance.ProfileName, process.ExitCode);
 
-                _handleToProfile.TryRemove(process.MainWindowHandle, out _);
+                _handleToProfile.TryRemove(process.GameWindow, out _);
 
                 if (instance.State == RunState.Running)
                 {
@@ -622,10 +638,13 @@ public class ProfileEngine
                         _logger.LogWarning("Profile {Name} not responding, treating as crash",
                             instance.ProfileName);
 
-                        _handleToProfile.TryRemove(process.MainWindowHandle, out _);
+                        _handleToProfile.TryRemove(process.GameWindow, out _);
 
-                        // Kill the unresponsive process
-                        await _processManager.TerminateAsync(process, TimeSpan.FromSeconds(5));
+                        // Kill the unresponsive process. Pass the cancellation token so that
+                        // if the user clicks Stop while we're waiting out the WM_CLOSE grace
+                        // period, the wait aborts and we force-kill immediately instead of
+                        // making the user sit through up to 5s of "the sleep isn't interruptible".
+                        await _processManager.TerminateAsync(process, TimeSpan.FromSeconds(5), cancellationToken);
 
                         // Treat as crash — restart instead of stopping
                         instance.MissedHeartbeats = 0;
@@ -740,4 +759,188 @@ public class ProfileEngine
     {
         await StopAllAsync(cancellationToken);
     }
+
+    #region Handoff
+
+    /// <summary>
+    /// Snapshot of all live profile instances so a successor process can adopt them.
+    /// Skips stopped/exited instances.
+    /// </summary>
+    public List<HandoffProfile> SnapshotInstances()
+    {
+        var result = new List<HandoffProfile>();
+        foreach (var instance in _instances.Values)
+        {
+            if (instance.Process == null) continue;
+            try
+            {
+                if (instance.Process.HasExited) continue;
+            }
+            catch
+            {
+                continue;
+            }
+
+            // Reverse-lookup the routing-map entry for this profile so the successor can
+            // restore it verbatim (Process.MainWindowHandle can drift to a different
+            // top-level window than the one D2BS sends from).
+            var registeredHandle = _handleToProfile
+                .FirstOrDefault(kvp => kvp.Value == instance.ProfileName)
+                .Key.ToInt64();
+
+            result.Add(new HandoffProfile
+            {
+                ProfileName = instance.ProfileName,
+                Pid = instance.Process.Id,
+                State = instance.State,
+                Status = instance.Status,
+                KeyName = instance.KeyName,
+                CrashCount = instance.CrashCount,
+                StartedAt = instance.StartedAt,
+                Handle = registeredHandle
+                // MissedHeartbeats and LastHeartbeat intentionally not carried over —
+                // the successor resets them so a stale snapshot can't immediately trip
+                // the 30s heartbeat timeout on adoption.
+            });
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Adopts running game processes described in the handoff manifest by attaching to
+    /// their PIDs and resuming the monitor loop. Re-sends the "Handle" message so the
+    /// game's D2BS script redirects WM_COPYDATA to this process's MessageWindow.
+    /// </summary>
+    public async Task RehydrateAsync(IEnumerable<HandoffProfile> profiles)
+    {
+        foreach (var snapshot in profiles)
+        {
+            if (!_instances.TryGetValue(snapshot.ProfileName, out var instance))
+            {
+                _logger.LogWarning("Handoff profile {Name} not found in repository, skipping", snapshot.ProfileName);
+                continue;
+            }
+
+            Process process;
+            try
+            {
+                process = Process.GetProcessById(snapshot.Pid);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Cannot find PID {Pid} for profile {Name}, process may have exited", snapshot.Pid, snapshot.ProfileName);
+                continue;
+            }
+
+            // The predecessor overwrote the game's DACL at launch time so it could inject
+            // D2BS and read MainWindowHandle. After handoff that grant is to a now-dead
+            // token; re-overwrite the DACL from this process so we can open the handle
+            // for SYNCHRONIZE / QUERY_INFORMATION (required by EnableRaisingEvents) and
+            // PROCESS_TERMINATE (required if a heartbeat timeout later forces a kill).
+            if (!_processManager.EnsureAccess(process))
+            {
+                _logger.LogWarning("Cannot adopt PID {Pid} for profile {Name}: access denied even after DACL overwrite",
+                    snapshot.Pid, snapshot.ProfileName);
+                process.Dispose();
+                continue;
+            }
+
+            try
+            {
+                process.EnableRaisingEvents = true;
+                process.Refresh();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Cannot attach to PID {Pid} for profile {Name} after DACL overwrite", snapshot.Pid, snapshot.ProfileName);
+                process.Dispose();
+                continue;
+            }
+
+            // Heartbeats are reset so the new monitor loop doesn't immediately trip the
+            // 30s timeout if the LastHeartbeat in the manifest is stale (it can be up to
+            // ~60s old: the snapshot is taken at handoff trigger and the manifest may sit
+            // for a few seconds before the successor rehydrates).
+            instance.RestoreFromHandoff(
+                process,
+                snapshot.State,
+                snapshot.Status,
+                snapshot.KeyName,
+                snapshot.CrashCount,
+                missedHeartbeats: 0,
+                snapshot.StartedAt,
+                lastHeartbeat: DateTime.UtcNow);
+
+            _logger.LogInformation("Adopted profile {Name} (PID {Pid}, state {State})",
+                snapshot.ProfileName, snapshot.Pid, snapshot.State);
+
+            // Restore the predecessor's routing entry verbatim. The HWND D2BS sends
+            // from is whatever was registered before — may differ from what we'd read
+            // now if Process.MainWindowHandle has drifted to a different top-level.
+            if (snapshot.Handle != 0)
+            {
+                _handleToProfile[(nint)snapshot.Handle] = snapshot.ProfileName;
+            }
+            else if (process.GameWindow != 0)
+            {
+                // Predecessor had no entry for this profile (e.g. registration raced with
+                // launch); fall back to the game window we can see now.
+                _handleToProfile[process.GameWindow] = snapshot.ProfileName;
+            }
+
+            // Proactively push the new manager HWND to the running D2BS script so it
+            // redirects future WM_COPYDATA messages to this process's MessageWindow.
+            if (!process.SendMessage((MessageType)_messageWindow.Handle, "Handle"))
+            {
+                _logger.LogWarning("Failed to push new manager handle to adopted profile {Name} (PID {Pid}) — no window accepted WM_COPYDATA",
+                    snapshot.ProfileName, snapshot.Pid);
+            }
+
+            if (snapshot.State == RunState.Running || snapshot.State == RunState.Starting)
+            {
+                _ = ResumeMonitoringBackgroundAsync(instance);
+            }
+
+            await NotifyProfileStateChangedAsync(snapshot.ProfileName);
+        }
+
+        await BroadcastKeyListsSnapshotAsync();
+    }
+
+    private Task ResumeMonitoringBackgroundAsync(ProfileInstance instance)
+    {
+        return Task.Run(async () =>
+        {
+            var cancellationToken = instance.GetCancellationToken();
+            try
+            {
+                await MonitorProcessAsync(instance, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected on stop
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error resuming monitor for {ProfileName}", instance.ProfileName);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Stops engine activity in preparation for handoff WITHOUT terminating game processes.
+    /// Cancels monitor loops and clears the handle map; sets a flag so the upcoming host
+    /// shutdown (triggered by <c>StopApplication</c>) skips game termination.
+    /// </summary>
+    public void QuiesceForHandoff()
+    {
+        _handoffInProgress = true;
+        foreach (var instance in _instances.Values)
+        {
+            instance.CancelRun();
+        }
+        _handleToProfile.Clear();
+    }
+
+    #endregion
 }

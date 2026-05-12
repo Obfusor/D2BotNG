@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json.Serialization;
 using D2BotNG.Core.Protos;
-using D2BotNG.Engine;
+using D2BotNG.Engine.Handoff;
 using Google.Protobuf.WellKnownTypes;
 using JetBrains.Annotations;
 
@@ -15,8 +15,8 @@ namespace D2BotNG.Services;
 public class UpdateManager
 {
     private readonly ILogger<UpdateManager> _logger;
-    private readonly ProfileEngine _profileEngine;
     private readonly EventBroadcaster _eventBroadcaster;
+    private readonly HandoffManager _handoffManager;
     private readonly HttpClient _httpClient;
     private readonly string _currentVersion;
     private readonly string _repoOwner;
@@ -40,12 +40,12 @@ public class UpdateManager
 
     public UpdateManager(
         ILogger<UpdateManager> logger,
-        ProfileEngine profileEngine,
-        EventBroadcaster eventBroadcaster)
+        EventBroadcaster eventBroadcaster,
+        HandoffManager handoffManager)
     {
         _logger = logger;
-        _profileEngine = profileEngine;
         _eventBroadcaster = eventBroadcaster;
+        _handoffManager = handoffManager;
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "D2BotNG");
 
@@ -192,6 +192,58 @@ public class UpdateManager
         }
     }
 
+    public const string OldExeSuffix = ".old";
+
+    /// <summary>
+    /// Deletes the predecessor binary left behind by <see cref="StartUpdateAsync"/>.
+    /// The previous version is renamed to <c>D2BotNG.exe.old</c> so that the new exe can
+    /// take over the original path. In the takeover case the predecessor is still holding
+    /// the file lock at the moment Main runs, so this fires a background task that waits
+    /// for the predecessor PID to exit, then deletes — falling back to a short retry loop
+    /// in case the OS hasn't released the lock the instant the process is gone. Failures
+    /// are swallowed; the next startup will retry.
+    /// </summary>
+    public static void CleanupOldExeAfterUpdate(int? predecessorPid = null)
+    {
+        if (Environment.ProcessPath is not { } exePath) return;
+        var oldPath = exePath + OldExeSuffix;
+        if (!File.Exists(oldPath)) return;
+
+        _ = WaitAndDeleteAsync(oldPath, predecessorPid);
+    }
+
+    private static async Task WaitAndDeleteAsync(string oldPath, int? predecessorPid)
+    {
+        if (predecessorPid is { } pid)
+        {
+            try
+            {
+                using var p = Process.GetProcessById(pid);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                await p.WaitForExitAsync(cts.Token);
+            }
+            catch
+            {
+                // Predecessor already gone, never existed, or timed out — fall through.
+            }
+        }
+
+        // Even after the process exits, the kernel can take a moment to release the
+        // file lock. Short retry loop instead of bailing on the first failure.
+        for (var i = 0; i < 10; i++)
+        {
+            try
+            {
+                File.Delete(oldPath);
+                return;
+            }
+            catch
+            {
+                await Task.Delay(500);
+            }
+        }
+    }
+
     public async Task StartUpdateAsync(CancellationToken cancellationToken = default)
     {
         var status = GetStatus();
@@ -206,6 +258,11 @@ public class UpdateManager
             return;
         }
 
+        var currentExe = Environment.ProcessPath
+            ?? throw new InvalidOperationException("Cannot resolve current exe path");
+        var stagingPath = currentExe + ".new";
+        var oldPath = currentExe + OldExeSuffix;
+
         UpdateStatusAndBroadcast(s =>
         {
             s.State = UpdateState.Downloading;
@@ -215,108 +272,48 @@ public class UpdateManager
 
         try
         {
-            // Create temp directory for update
-            var tempDir = Path.Combine(Path.GetTempPath(), "D2BotNG.Update");
-            Directory.CreateDirectory(tempDir);
+            _logger.LogInformation("Downloading update from {Url} to {Path}", status.DownloadUrl, stagingPath);
 
-            var fileName = Path.GetFileName(new Uri(status.DownloadUrl).LocalPath);
-            var downloadPath = Path.Combine(tempDir, fileName);
-
-            _logger.LogInformation("Downloading update from {Url} to {Path}", status.DownloadUrl, downloadPath);
-
-            // Download with progress reporting
-            using var response = await _httpClient.GetAsync(status.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            var totalBytes = response.Content.Headers.ContentLength ?? status.DownloadSize;
-            var downloadedBytes = 0L;
-
-            await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var fileStream = new FileStream(downloadPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
-
-            var buffer = new byte[8192];
-            int bytesRead;
-
-            while ((bytesRead = await contentStream.ReadAsync(buffer, cancellationToken)) > 0)
+            // Download to a sidecar file in the install directory, with progress reporting.
+            using (var response = await _httpClient.GetAsync(status.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
             {
-                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-                downloadedBytes += bytesRead;
+                response.EnsureSuccessStatusCode();
 
-                if (totalBytes > 0)
+                var totalBytes = response.Content.Headers.ContentLength ?? status.DownloadSize;
+                var downloadedBytes = 0L;
+
+                await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                await using var fileStream = new FileStream(stagingPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
+
+                var buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = await contentStream.ReadAsync(buffer, cancellationToken)) > 0)
                 {
-                    var progress = (int)((downloadedBytes * 100) / totalBytes);
-                    UpdateStatusAndBroadcast(s => s.DownloadProgress = progress);
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                    downloadedBytes += bytesRead;
+
+                    if (totalBytes > 0)
+                    {
+                        var progress = (int)((downloadedBytes * 100) / totalBytes);
+                        UpdateStatusAndBroadcast(s => s.DownloadProgress = progress);
+                    }
                 }
             }
 
-            _logger.LogInformation("Download complete: {Path}", downloadPath);
-
-            // Create update script that will:
-            // 1. Wait for current process to exit
-            // 2. Replace executable
-            // 3. Start new version
-            var currentExe = Environment.ProcessPath ?? AppContext.BaseDirectory;
-            var scriptPath = Path.Combine(tempDir, "update.bat");
-
-            var scriptContent = $@"@echo off
-echo Waiting for D2BotNG to exit...
-timeout /t 2 /nobreak >nul
-:waitloop
-tasklist /fi ""pid eq {Environment.ProcessId}"" | find ""{Environment.ProcessId}"" >nul
-if not errorlevel 1 (
-    timeout /t 1 /nobreak >nul
-    goto waitloop
-)
-echo Applying update...
-";
-
-            if (fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-            {
-                scriptContent += $@"powershell -Command ""Expand-Archive -Path '{downloadPath}' -DestinationPath '{Path.GetDirectoryName(currentExe)}' -Force""
-";
-            }
-            else
-            {
-                scriptContent += $@"copy /y ""{downloadPath}"" ""{currentExe}""
-";
-            }
-
-            scriptContent += $@"echo Starting D2BotNG...
-start """" ""{currentExe}""
-echo Cleaning up...
-rd /s /q ""{tempDir}"" 2>nul
-";
-
-            await File.WriteAllTextAsync(scriptPath, scriptContent, cancellationToken);
+            _logger.LogInformation("Download complete: {Path}", stagingPath);
 
             UpdateStatusAndBroadcast(s => s.State = UpdateState.ReadyToInstall);
-
-            _logger.LogInformation("Update ready to install. Script created at {Path}", scriptPath);
-
-            // Start the update script and exit
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "cmd.exe",
-                Arguments = $"/c \"{scriptPath}\"",
-                UseShellExecute = true,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden
-            };
-
             UpdateStatusAndBroadcast(s => s.State = UpdateState.Installing);
 
-            // Stop profiles to prevent them being orphaned when the process dies.
-            _logger.LogInformation("Stopping all profiles before update");
-            await _profileEngine.StopAllAsync();
+            // Windows lets us *rename* a running exe even though we can't overwrite
+            // it. Move the running exe out of the way, then drop the freshly-
+            // downloaded one into the original path so handoff can spawn it.
+            if (File.Exists(oldPath)) File.Delete(oldPath);
+            File.Move(currentExe, oldPath);
+            File.Move(stagingPath, currentExe);
 
-            Process.Start(startInfo);
-
-            // Exit application after a short delay to allow event to be sent
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(1000);
-                Environment.Exit(0);
-            });
+            _logger.LogInformation("Triggering handoff to newly-installed exe at {Path}", currentExe);
+            await _handoffManager.TriggerHandoffAsync(currentExe, cancellationToken);
         }
         catch (Exception ex)
         {

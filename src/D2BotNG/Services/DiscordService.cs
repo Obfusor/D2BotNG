@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using D2BotNG.Core.Protos;
 using D2BotNG.Data;
 using D2BotNG.Engine;
+using D2BotNG.Engine.Handoff;
 using Discord;
 using Discord.WebSocket;
 using Color = Discord.Color;
@@ -13,7 +15,7 @@ namespace D2BotNG.Services;
 /// Discord bot service using slash commands with rich embeds.
 /// Commands: list, status, start, stop, mule, startschedule, stopschedule, restart
 /// </summary>
-public class DiscordService : BackgroundService
+public class DiscordService : BackgroundService, IHandoffParticipant
 {
     private readonly ILogger<DiscordService> _logger;
     private readonly SettingsRepository _settingsRepository;
@@ -714,6 +716,26 @@ public class DiscordService : BackgroundService
 
         _authenticatedUsers.Add(userId);
         return CreateSuccessEmbed("Authenticated", "You have been authenticated successfully.");
+    }
+
+    public string HandoffKey => "discordAuth";
+
+    public Task<object?> SnapshotAsync()
+    {
+        lock (_authenticatedUsers)
+        {
+            return Task.FromResult<object?>(_authenticatedUsers.ToList());
+        }
+    }
+
+    public Task RestoreAsync(JsonElement payload, JsonSerializerOptions options)
+    {
+        var users = payload.Deserialize<List<string>>(options) ?? [];
+        lock (_authenticatedUsers)
+        {
+            foreach (var u in users) _authenticatedUsers.Add(u);
+        }
+        return Task.CompletedTask;
     }
 
     private async Task<List<Profile>> GetTargetProfiles(string args)

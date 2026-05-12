@@ -1,6 +1,9 @@
+using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using D2BotNG.Data;
 using D2BotNG.Engine;
+using D2BotNG.Engine.Handoff;
 using D2BotNG.Legacy.Api;
 using D2BotNG.Legacy.Models;
 using D2BotNG.Logging;
@@ -13,6 +16,8 @@ using Microsoft.Extensions.FileProviders;
 using Serilog;
 using Serilog.Events;
 using Serilog.Extensions.Logging;
+using static D2BotNG.Windows.NativeMethods;
+using static D2BotNG.Windows.NativeTypes;
 using ILogger = Serilog.ILogger;
 
 // For SerilogLoggerFactory
@@ -28,6 +33,8 @@ internal static class Program
     {
         var headless = args.Contains("--headless");
         var devUi = args.Contains("--dev-ui");
+        var handoffContext = BuildHandoffContext(args);
+        UpdateManager.CleanupOldExeAfterUpdate(handoffContext.Manifest?.OldPid);
 
         // Configure logging with async sinks to avoid thread pool starvation
         Log.Logger = new LoggerConfiguration()
@@ -54,6 +61,7 @@ internal static class Program
             // Reduce shutdown timeout so Kestrel doesn't wait 30s draining connections
             builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.Zero);
 
+            builder.Services.AddSingleton(handoffContext);
             ConfigureServices(builder.Services);
 
             var app = builder.Build();
@@ -83,12 +91,24 @@ internal static class Program
             // Get server URL from settings
             var serverUrl = $"http://{settings.Server.Host}:{settings.Server.Port}";
 
+            // In takeover mode the predecessor still holds the server port until its
+            // host finishes shutting down. Wait for the port to become bindable before
+            // Kestrel tries to claim it.
+            if (handoffContext.IsTakeover)
+            {
+                WaitForPortBindable(settings.Server.Host, (int)settings.Server.Port, TimeSpan.FromSeconds(30));
+            }
+
+            // Create the message-only window for WM_COPYDATA IPC BEFORE the host starts.
+            // EngineHostedService.StartAsync (and any handoff RehydrateAsync inside it) reads
+            // MessageWindow.Handle, so it must be valid by then. In GUI mode, MainForm no
+            // longer switches the handle when it loads — the message-only window owns it
+            // for the full process lifetime.
+            var messageWindow = app.Services.GetRequiredService<MessageWindow>();
+            messageWindow.CreateMessageOnlyWindow();
+
             if (headless)
             {
-                // Headless mode: create message-only window for D2BS IPC
-                var messageWindow = app.Services.GetRequiredService<MessageWindow>();
-                messageWindow.CreateMessageOnlyWindow();
-
                 Logger.Information("Server will run on {Url}", serverUrl);
 
                 // Run the server
@@ -167,8 +187,8 @@ internal static class Program
         // Use localhost for WebView since it can't connect to 0.0.0.0
         var webViewUrl = serverUrl.Replace("0.0.0.0", "127.0.0.1");
         var profileEngine = app.Services.GetRequiredService<ProfileEngine>();
-        var messageWindow = app.Services.GetRequiredService<MessageWindow>();
-        var form = new MainForm(webViewUrl, settingsRepo, profileEngine, messageWindow);
+        var appLifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+        var form = new MainForm(webViewUrl, settingsRepo, profileEngine, appLifetime);
 
         if (startMinimized)
         {
@@ -229,6 +249,101 @@ internal static class Program
         return false;
     }
 
+    /// <summary>
+    /// Parses <c>--takeover &lt;manifest-path&gt;</c> from the CLI args. If present, reads the
+    /// manifest, duplicates the predecessor's job handle into this process, and returns a
+    /// populated <see cref="HandoffContext"/>. Otherwise returns an empty context.
+    /// </summary>
+    private static HandoffContext BuildHandoffContext(string[] args)
+    {
+        var idx = Array.IndexOf(args, HandoffManager.TakeoverFlag);
+        if (idx < 0 || idx + 1 >= args.Length)
+            return new HandoffContext();
+
+        var manifestPath = args[idx + 1];
+        var json = File.ReadAllText(manifestPath);
+        var manifest = HandoffManager.DeserializeManifest(json);
+
+        if (manifest.SchemaVersion != HandoffManifest.CurrentSchemaVersion)
+        {
+            throw new InvalidOperationException(
+                $"Handoff manifest schema version {manifest.SchemaVersion} does not match current {HandoffManifest.CurrentSchemaVersion}");
+        }
+
+        var oldProcess = OpenProcess(PROCESS_DUP_HANDLE, false, manifest.OldPid);
+        if (oldProcess == 0)
+        {
+            throw new InvalidOperationException(
+                $"Cannot open predecessor PID {manifest.OldPid} for handle duplication (last error {Marshal.GetLastWin32Error()})");
+        }
+
+        try
+        {
+            if (!DuplicateHandle(
+                oldProcess,
+                (nint)manifest.JobHandle,
+                GetCurrentProcess(),
+                out var adoptedJobHandle,
+                0,
+                false,
+                DUPLICATE_SAME_ACCESS))
+            {
+                throw new InvalidOperationException(
+                    $"DuplicateHandle failed for job handle (last error {Marshal.GetLastWin32Error()})");
+            }
+
+            // Tell the predecessor we own the job now so it can quiesce its monitor loops
+            // before we re-register the manager handle with running games.
+            SignalNamedEvent(manifest.AdoptedEventName);
+
+            return new HandoffContext
+            {
+                IsTakeover = true,
+                AdoptedJobHandle = adoptedJobHandle,
+                Manifest = manifest,
+                ManifestPath = manifestPath
+            };
+        }
+        finally
+        {
+            CloseHandle(oldProcess);
+        }
+    }
+
+    private static void SignalNamedEvent(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return;
+        if (!EventWaitHandle.TryOpenExisting(name, out var evt)) return;
+        using (evt) evt.Set();
+    }
+
+    /// <summary>
+    /// Polls until a TCP listener can bind the given host:port (or throws on timeout).
+    /// Used by a successor process to wait for the predecessor to release the server port.
+    /// </summary>
+    private static void WaitForPortBindable(string host, int port, TimeSpan timeout)
+    {
+        // Fall back to IPAddress.Any for hostnames like "localhost" or "0.0.0.0".
+        var address = IPAddress.TryParse(host, out var parsed) ? parsed : IPAddress.Any;
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                var listener = new TcpListener(address, port);
+                listener.Start();
+                listener.Stop();
+                Logger.Information("Predecessor released {Host}:{Port}", host, port);
+                return;
+            }
+            catch (SocketException)
+            {
+                Thread.Sleep(100);
+            }
+        }
+        throw new TimeoutException($"Predecessor did not release {host}:{port} within {timeout.TotalSeconds}s");
+    }
+
     private static void ConfigureServices(IServiceCollection services)
     {
         // Add gRPC services with auth interceptor
@@ -245,7 +360,7 @@ internal static class Program
         services.AddSingleton<SettingsRepository>();
         services.AddSingleton<Paths>();
         services.AddSingleton<ProfileRepository>();
-        services.AddSingleton<KeyListRepository>();
+        services.AddSingletonWithHandoff<KeyListRepository>();
         services.AddSingleton<ScheduleRepository>();
         services.AddSingleton<ItemRepository>();
         services.AddSingleton<PatchRepository>();
@@ -258,7 +373,7 @@ internal static class Program
         services.AddSingleton<MessageWindow>();
 
         // Add data cache for D2BS store/retrieve/delete
-        services.AddSingleton<DataCache>();
+        services.AddSingletonWithHandoff<DataCache>();
 
         // Add d2bs.ini writer
         services.AddSingleton<IniWriter>();
@@ -268,13 +383,13 @@ internal static class Program
         services.AddSingleton<ItemRenderer>();
 
         // Add message service (centralized console messages)
-        services.AddSingleton<MessageService>();
+        services.AddSingletonWithHandoff<MessageService>();
 
         // Add Discord webhook service (per-profile webhooks for items/console/announce)
         services.AddSingleton<DiscordWebhookService>();
 
         // Add logger registry (per-logger level filtering for UI console)
-        services.AddSingleton<LoggerRegistry>();
+        services.AddSingletonWithHandoff<LoggerRegistry>();
 
         // Add engines
         services.AddSingleton<ProfileEngine>();
@@ -283,20 +398,27 @@ internal static class Program
         // Add update manager
         services.AddSingleton<UpdateManager>();
 
+        // Add handoff manager (orchestrates in-place process restart)
+        services.AddSingleton<HandoffManager>();
+
         // Add legacy API services
         services.AddHttpClient();
-        services.AddSingleton<SessionManager>();
-        services.AddSingleton<NotificationQueue>();
-        services.AddSingleton<WebhookService>();
-        services.AddSingleton<GameActionScheduler>();
+        services.AddSingletonWithHandoff<SessionManager>();
+        services.AddSingletonWithHandoff<NotificationQueue>();
+        services.AddSingletonWithHandoff<WebhookService>();
+        services.AddSingletonWithHandoff<GameActionScheduler>();
         services.AddScoped<LegacyApiHandler>();
+
+        // DiscordService is a participant; register as singleton + hosted service so the
+        // same instance can be resolved by the HandoffManager
+        services.AddSingletonWithHandoff<DiscordService>();
 
         // Add hosted services
         services.AddHostedService<EngineHostedService>();
         services.AddHostedService<ErrorDialogWatcher>();
         services.AddHostedService<UpdateCheckBackgroundService>();
         services.AddHostedService<D2BSMessageHandler>();
-        services.AddHostedService<DiscordService>();
+        services.AddHostedService(sp => sp.GetRequiredService<DiscordService>());
         services.AddHostedService(sp => sp.GetRequiredService<GameActionScheduler>());
 
         // CORS for development

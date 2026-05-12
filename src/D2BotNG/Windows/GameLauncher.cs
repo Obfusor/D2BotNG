@@ -85,21 +85,22 @@ public class GameLauncher
             await WaitForMainWindowAsync(process, TimeSpan.FromSeconds(30), cancellationToken);
 
             // Step 10: Set window title
-            if (!string.IsNullOrEmpty(config.ProfileName) && process.MainWindowHandle != 0)
+            var gameWindow = process.GameWindow;
+            if (!string.IsNullOrEmpty(config.ProfileName) && gameWindow != 0)
             {
-                _processManager.SetWindowTitle(process.MainWindowHandle, config.ProfileName);
+                _processManager.SetWindowTitle(gameWindow, config.ProfileName);
             }
 
             // Step 11: Set window position if configured
-            if (config.WindowLocation != null && process.MainWindowHandle != 0)
+            if (config.WindowLocation != null && gameWindow != 0)
             {
-                _processManager.MoveWindow(process.MainWindowHandle, config.WindowLocation.X, config.WindowLocation.Y);
+                _processManager.MoveWindow(gameWindow, config.WindowLocation.X, config.WindowLocation.Y);
             }
 
             // Step 12: Handle visibility
-            if (!config.Visible && process.MainWindowHandle != 0)
+            if (!config.Visible && gameWindow != 0)
             {
-                _processManager.HideWindow(process.MainWindowHandle);
+                _processManager.HideWindow(gameWindow);
             }
 
             return process;

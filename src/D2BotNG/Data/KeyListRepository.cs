@@ -1,8 +1,10 @@
+using System.Text.Json;
 using D2BotNG.Core.Protos;
+using D2BotNG.Engine.Handoff;
 
 namespace D2BotNG.Data;
 
-public class KeyListRepository : FileRepository<KeyList, KeyListCollection>
+public class KeyListRepository : FileRepository<KeyList, KeyListCollection>, IHandoffParticipant
 {
     private readonly Dictionary<string, int> _currentIndex = new();
 
@@ -63,6 +65,59 @@ public class KeyListRepository : FileRepository<KeyList, KeyListCollection>
         if (key != null)
         {
             key.Held = true;
+        }
+    }
+
+    public string HandoffKey => "keyState";
+
+    public async Task<object?> SnapshotAsync()
+    {
+        Dictionary<string, int> cursors;
+        await Lock.WaitAsync();
+        try
+        {
+            cursors = new Dictionary<string, int>(_currentIndex);
+        }
+        finally
+        {
+            Lock.Release();
+        }
+
+        var held = new List<HeldKeyDto>();
+        var all = await GetAllAsync();
+        foreach (var list in all)
+        {
+            foreach (var key in list.Keys)
+            {
+                if (key.Held) held.Add(new HeldKeyDto { KeyList = list.Name, KeyName = key.Name });
+            }
+        }
+
+        return new KeyStateDto { RotationCursors = cursors, HeldKeys = held };
+    }
+
+    public async Task RestoreAsync(JsonElement payload, JsonSerializerOptions options)
+    {
+        var dto = payload.Deserialize<KeyStateDto>(options);
+        if (dto == null) return;
+
+        await Lock.WaitAsync();
+        try
+        {
+            foreach (var (k, v) in dto.RotationCursors)
+                _currentIndex[k] = v;
+        }
+        finally
+        {
+            Lock.Release();
+        }
+
+        var all = await GetAllAsync();
+        foreach (var held in dto.HeldKeys)
+        {
+            var list = all.FirstOrDefault(k => GetKey(k) == held.KeyList);
+            var key = list?.Keys.FirstOrDefault(k => k.Name == held.KeyName);
+            key?.Held = true;
         }
     }
 }

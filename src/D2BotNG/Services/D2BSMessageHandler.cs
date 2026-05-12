@@ -228,10 +228,12 @@ public class D2BSMessageHandler : BackgroundService
     {
         if (args.Length < 2) return false;
         var instance = _profileEngine.GetInstance(profile.Name);
-        if (instance == null || instance.Process == null || instance.Process.MainWindowHandle == 0) return false;
+        if (instance?.Process == null) return false;
+        var hwnd = instance.Process.GameWindow;
+        if (hwnd == 0) return false;
         if (!uint.TryParse(args[0], out var msgId)) return false;
         if (!int.TryParse(args[1], out var wParam)) return false;
-        NativeMethods.SendMessageTimeout(instance.Process.MainWindowHandle, msgId, wParam, 0,
+        NativeMethods.SendMessageTimeout(hwnd, msgId, wParam, 0,
             NativeTypes.SMTO_ABORTIFHUNG, 250u, out _);
         return true;
     }

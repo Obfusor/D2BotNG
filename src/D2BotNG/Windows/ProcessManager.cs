@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using D2BotNG.Engine.Handoff;
 using static D2BotNG.Windows.NativeMethods;
 using static D2BotNG.Windows.NativeTypes;
 
@@ -12,10 +13,19 @@ public class ProcessManager : IDisposable
     private readonly DaclOverwriter _daclOverwriter;
     private nint _jobHandle;
 
-    public ProcessManager(ILogger<ProcessManager> logger, DaclOverwriter daclOverwriter)
+    public ProcessManager(ILogger<ProcessManager> logger, DaclOverwriter daclOverwriter, HandoffContext handoffContext)
     {
         _logger = logger;
         _daclOverwriter = daclOverwriter;
+
+        if (handoffContext.IsTakeover && handoffContext.AdoptedJobHandle != 0)
+        {
+            // Adopt the job handle duplicated from the predecessor process. The job
+            // already has KILL_ON_JOB_CLOSE configured and all running games assigned.
+            _jobHandle = handoffContext.AdoptedJobHandle;
+            logger.LogInformation("Adopted job handle {Handle} from predecessor", _jobHandle);
+            return;
+        }
 
         // Create a job object with KILL_ON_JOB_CLOSE so all child game processes
         // are automatically terminated if D2BotNG exits or crashes.
@@ -33,6 +43,40 @@ public class ProcessManager : IDisposable
         {
             logger.LogWarning("Failed to create job object, child processes may orphan on crash");
         }
+    }
+
+    /// <summary>
+    /// Returns the underlying job handle so it can be duplicated to a successor process during handoff.
+    /// </summary>
+    public nint GetJobHandle() => _jobHandle;
+
+    /// <summary>
+    /// Ensures the current process can open the given target with at least
+    /// <c>PROCESS_QUERY_INFORMATION | SYNCHRONIZE</c>. If a direct <c>OpenProcess</c> fails,
+    /// rewrites the target's DACL via owner-rights <c>WRITE_DAC</c> and retries.
+    /// Used after handoff to re-grant access to games that were launched by the predecessor.
+    /// </summary>
+    public bool EnsureAccess(Process process)
+    {
+        var handle = OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, false, process.Id);
+        if (handle != 0)
+        {
+            CloseHandle(handle);
+            return true;
+        }
+
+        _logger.LogDebug("OpenProcess failed for {Pid}, attempting DACL overwrite", process.Id);
+        if (!_daclOverwriter.OverwriteDacl(process)) return false;
+
+        handle = OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, false, process.Id);
+        if (handle == 0)
+        {
+            _logger.LogWarning("Still cannot open {Pid} after DACL overwrite (error {Error})",
+                process.Id, Marshal.GetLastWin32Error());
+            return false;
+        }
+        CloseHandle(handle);
+        return true;
     }
 
     public async Task<bool> InjectDllAsync(Process process, string dllPath)
@@ -135,11 +179,18 @@ public class ProcessManager : IDisposable
             return;
         }
 
-        // Try graceful close first
-        if (process.MainWindowHandle != 0)
+        // Try graceful close first. PostMessage WM_CLOSE to every top-level window
+        // owned by the PID — Process.MainWindowHandle may have drifted post-handoff
+        // to a window that won't act on close (D2 has multiple top-level windows over
+        // its lifetime). Broadcasting catches the real game window regardless.
+        var windows = process.TopLevelWindows;
+        foreach (var hwnd in windows)
         {
-            PostMessage(process.MainWindowHandle, WM_CLOSE, 0, 0);
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+        }
 
+        if (windows.Count > 0)
+        {
             var deadline = DateTime.UtcNow + gracePeriod;
             while (!process.HasExited && DateTime.UtcNow < deadline)
             {

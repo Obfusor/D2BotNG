@@ -19,6 +19,20 @@ public static class NativeMethods
     public static extern bool CloseHandle(nint hObject);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool DuplicateHandle(
+        nint hSourceProcessHandle,
+        nint hSourceHandle,
+        nint hTargetProcessHandle,
+        out nint lpTargetHandle,
+        uint dwDesiredAccess,
+        bool bInheritHandle,
+        uint dwOptions);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern nint GetCurrentProcess();
+
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern nint VirtualAllocEx(nint hProcess, nint lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -118,6 +132,17 @@ public static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern nint FindWindowEx(nint hwndParent, nint hwndChildAfter, string? lpszClass, string? lpszWindow);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, nint lParam);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(nint hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern int GetClassNameW(nint hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+    public delegate bool EnumWindowsProc(nint hWnd, nint lParam);
 
     #endregion
 

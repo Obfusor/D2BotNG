@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using D2BotNG.Core.Protos;
+using D2BotNG.Windows;
 using static D2BotNG.Windows.NativeMethods;
 
 namespace D2BotNG.Engine;
@@ -61,6 +62,31 @@ public class ProfileInstance : IDisposable
         MissedHeartbeats = 0;
     }
 
+    /// <summary>
+    /// Restores instance state from a handoff manifest, attaching to an already-running
+    /// game process. Skips the normal state-machine transitions.
+    /// </summary>
+    public void RestoreFromHandoff(
+        Process process,
+        RunState state,
+        string status,
+        string? keyName,
+        int crashCount,
+        int missedHeartbeats,
+        DateTime? startedAt,
+        DateTime? lastHeartbeat)
+    {
+        Process?.Dispose();
+        Process = process;
+        State = state;
+        Status = status;
+        KeyName = keyName;
+        CrashCount = crashCount;
+        MissedHeartbeats = missedHeartbeats;
+        StartedAt = startedAt;
+        LastHeartbeat = lastHeartbeat;
+    }
+
     public async Task SetErrorAsync(string error)
     {
         await _stateLock.WaitAsync();
@@ -78,7 +104,7 @@ public class ProfileInstance : IDisposable
 
     public ProfileState GetState()
     {
-        nint hwnd = Process?.MainWindowHandle ?? 0;
+        nint hwnd = Process?.GameWindow ?? 0;
         return new ProfileState
         {
             ProfileName = ProfileName,

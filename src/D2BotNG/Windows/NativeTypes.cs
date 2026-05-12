@@ -98,7 +98,14 @@ public static class NativeTypes
     public const uint PROCESS_VM_WRITE = 0x0020;
     public const uint PROCESS_CREATE_THREAD = 0x0002;
     public const uint PROCESS_QUERY_INFORMATION = 0x0400;
+    public const uint PROCESS_DUP_HANDLE = 0x0040;
     public const uint WRITE_DAC = 0x00040000;
+
+    // DuplicateHandle options (DWORD)
+    public const uint DUPLICATE_SAME_ACCESS = 0x00000002;
+
+    // Generic kernel object access rights (DWORD)
+    public const uint SYNCHRONIZE = 0x00100000;
 
     // Thread access rights (DWORD)
     public const uint THREAD_SUSPEND_RESUME = 0x0002;

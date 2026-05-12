@@ -3,12 +3,13 @@ using System.Text.Json;
 using D2BotNG.Core.Protos;
 using D2BotNG.Data;
 using D2BotNG.Engine;
+using D2BotNG.Engine.Handoff;
 using D2BotNG.Legacy.Models;
 using D2BotNG.Services;
 
 namespace D2BotNG.Legacy.Api;
 
-public class GameActionScheduler : BackgroundService
+public class GameActionScheduler : BackgroundService, IHandoffParticipant
 {
     private readonly EventBroadcaster _eventBroadcaster;
     private readonly ProfileEngine _profileEngine;
@@ -38,6 +39,17 @@ public class GameActionScheduler : BackgroundService
     public void EnqueueAction(string actionJson)
     {
         _actionQueue.Enqueue(actionJson);
+    }
+
+    public string HandoffKey => "actionQueue";
+
+    public Task<object?> SnapshotAsync() => Task.FromResult<object?>(_actionQueue.ToList());
+
+    public Task RestoreAsync(JsonElement payload, JsonSerializerOptions options)
+    {
+        var actions = payload.Deserialize<List<string>>(options) ?? [];
+        foreach (var a in actions) _actionQueue.Enqueue(a);
+        return Task.CompletedTask;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
