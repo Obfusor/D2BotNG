@@ -16,7 +16,12 @@ public class UpdateManager
 {
     private readonly ILogger<UpdateManager> _logger;
     private readonly EventBroadcaster _eventBroadcaster;
-    private readonly HandoffManager _handoffManager;
+    // Resolved lazily to break a DI cycle: HandoffManager pulls in
+    // IEnumerable<IHandoffParticipant>, which (through DiscordService)
+    // pulls UpdateManager back in. Constructing HandoffManager here would
+    // loop. The resolution at use-time is fine — by then both singletons
+    // are cached.
+    private readonly IServiceProvider _serviceProvider;
     private readonly HttpClient _httpClient;
     private readonly string _currentVersion;
     private readonly string _repoOwner;
@@ -41,11 +46,11 @@ public class UpdateManager
     public UpdateManager(
         ILogger<UpdateManager> logger,
         EventBroadcaster eventBroadcaster,
-        HandoffManager handoffManager)
+        IServiceProvider serviceProvider)
     {
         _logger = logger;
         _eventBroadcaster = eventBroadcaster;
-        _handoffManager = handoffManager;
+        _serviceProvider = serviceProvider;
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "D2BotNG");
 
@@ -313,7 +318,8 @@ public class UpdateManager
             File.Move(stagingPath, currentExe);
 
             _logger.LogInformation("Triggering handoff to newly-installed exe at {Path}", currentExe);
-            await _handoffManager.TriggerHandoffAsync(currentExe, cancellationToken);
+            var handoffManager = _serviceProvider.GetRequiredService<HandoffManager>();
+            await handoffManager.TriggerHandoffAsync(currentExe, cancellationToken);
         }
         catch (Exception ex)
         {
