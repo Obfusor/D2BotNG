@@ -60,6 +60,7 @@ public class ProfileInstance : IDisposable
     {
         LastHeartbeat = DateTime.UtcNow;
         MissedHeartbeats = 0;
+        CrashCount = 0;
     }
 
     /// <summary>
