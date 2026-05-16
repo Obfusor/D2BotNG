@@ -9,6 +9,7 @@ import { clone, create } from "@bufbuild/protobuf";
 import { Button, LoadingSpinner } from "@/components/ui";
 import { useUpdateSettings } from "@/hooks/useSettings";
 import { useSettings, useIsLoading } from "@/stores/event-store";
+import { toast } from "@/stores/toast-store";
 import type {
   Settings,
   ServerSettings as ServerSettingsType,
@@ -209,13 +210,24 @@ export function SettingsPage() {
       return;
     }
 
+    // Snapshot before mutate; the store may update before onSuccess fires.
+    const serverChanged =
+      settings?.server?.host !== localSettings.server?.host ||
+      settings?.server?.port !== localSettings.server?.port;
+
     updateSettings.mutate(localSettings, {
       onSuccess: () => {
         setIsDirty(false);
         setDiscordErrors({});
+        if (serverChanged) {
+          toast.warning(
+            "Restart required",
+            "Server host/port changes take effect after restarting D2BotNG.",
+          );
+        }
       },
     });
-  }, [localSettings, updateSettings, validateDiscord]);
+  }, [localSettings, updateSettings, validateDiscord, settings]);
 
   // Loading state - waiting for initial data from event stream
   // DevSettings is always shown so users can change backend URL if needed
