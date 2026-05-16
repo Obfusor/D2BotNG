@@ -97,7 +97,7 @@ public class D2BSMessageHandler : BackgroundService
                 break;
 
             case "updateStatus":
-                if (args.Length > 0)
+                if (args.Length > 0 && !string.IsNullOrEmpty(args[0]))
                     await HandleUpdateStatusAsync(msg.SenderHandle, args[0]);
                 break;
 
@@ -119,12 +119,12 @@ public class D2BSMessageHandler : BackgroundService
                 break;
 
             case "printToItemLog":
-                if (args.Length > 0 && args[0].Length > 0)
+                if (args.Length > 0 && !string.IsNullOrEmpty(args[0]))
                     HandlePrintToItemLog(profile, args[0]);
                 break;
 
             case "saveItem":
-                if (args.Length > 0 && args[0].Length > 0)
+                if (args.Length > 0 && !string.IsNullOrEmpty(args[0]))
                     HandleSaveItem(args[0]);
                 break;
 
@@ -184,22 +184,22 @@ public class D2BSMessageHandler : BackgroundService
                 break;
 
             case "store":
-                if (args.Length >= 2)
+                if (args.Length >= 2 && !string.IsNullOrEmpty(args[0]))
                     _dataCache.Store(args[0], args[1]);
                 break;
 
             case "retrieve":
-                if (args.Length > 0)
+                if (args.Length > 0 && !string.IsNullOrEmpty(args[0]))
                     _profileEngine.SendMessage(msg.SenderHandle, MessageType.DataRetrieve, _dataCache.Retrieve(args[0]) ?? "null");
                 break;
 
             case "delete":
-                if (args.Length > 0)
+                if (args.Length > 0 && !string.IsNullOrEmpty(args[0]))
                     _dataCache.Delete(args[0]);
                 break;
 
             case "shoutGlobal":
-                if (msg.Message.Arguments.Length > 1 && msg.Message.Arguments[0].Length > 0 && msg.Message.Arguments[1].Length > 0)
+                if (msg.Message.Arguments.Length > 1 && !string.IsNullOrEmpty(msg.Message.Arguments[0]) && !string.IsNullOrEmpty(msg.Message.Arguments[1]))
                     _profileEngine.BroadcastToAll((MessageType)uint.Parse(msg.Message.Arguments[1]), msg.Message.Arguments[0]);
                 break;
 
@@ -310,7 +310,7 @@ public class D2BSMessageHandler : BackgroundService
 
     private void HandlePrintToConsole(Profile profile, string[] args)
     {
-        if (args.Length < 1 || args[0].Length < 1) return;
+        if (args.Length < 1 || string.IsNullOrEmpty(args[0])) return;
         var message = JsonSerializer.Deserialize<JsonNode>(args[0])!;
         var text = message["msg"]!.GetValue<string>();
         _messageService.AddMessage(profile.Name, text, (MessageColor?)message["color"]?.GetValue<int>() ?? MessageColor.ColorDefault);

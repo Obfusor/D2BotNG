@@ -39,7 +39,13 @@ public sealed class StringListCoercingConverter : JsonConverter<string[]>
                     break;
 
                 case JsonTokenType.Null:
-                    result.Add("null");
+                    // Preserve JSON null as C# null (matches reference D2Bot#'s
+                    // Newtonsoft behavior). Emitting the literal "null" string here
+                    // caused !IsNullOrEmpty guards in handlers to pass and corrupt
+                    // persisted profile fields when scripts called e.g.
+                    // setProfile(null, null, ...). Handlers that access args[i]
+                    // members must null-guard accordingly.
+                    result.Add(null!);
                     break;
 
                 default:
