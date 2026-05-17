@@ -89,7 +89,7 @@ public class MainForm : Form
     protected override void WndProc(ref Message m)
     {
         // Intercept system minimize (taskbar right-click, Win+D, etc.) → minimize to tray
-        if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_MINIMIZE)
+        if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_MINIMIZE && ShouldMinimizeToTray())
         {
             MinimizeToTray();
             return;
@@ -100,6 +100,12 @@ public class MainForm : Form
             _ = SaveWindowSettingsAsync();
         }
         base.WndProc(ref m);
+    }
+
+    private bool ShouldMinimizeToTray()
+    {
+        // Settings are cached after first load; this is effectively a property read.
+        return _settingsRepository.GetAsync().GetAwaiter().GetResult().MinimizeToTray;
     }
 
     private async void OnFormLoad(object? sender, EventArgs e)
@@ -154,7 +160,14 @@ public class MainForm : Form
             switch (action)
             {
                 case "minimize":
-                    MinimizeToTray();
+                    if (ShouldMinimizeToTray())
+                    {
+                        MinimizeToTray();
+                    }
+                    else
+                    {
+                        WindowState = FormWindowState.Minimized;
+                    }
                     break;
 
                 case "maximize":

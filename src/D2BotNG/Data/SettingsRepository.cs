@@ -68,6 +68,7 @@ public class SettingsRepository
                 D2InstallPath = DefaultD2InstallPath,
             },
             BasePath = AppContext.BaseDirectory,
+            MinimizeToTray = true,
         };
     }
 
@@ -115,6 +116,11 @@ public class SettingsRepository
         if (string.IsNullOrWhiteSpace(settings.BasePath))
         {
             settings.BasePath = AppContext.BaseDirectory;
+        }
+
+        if (!settings.HasMinimizeToTray)
+        {
+            settings.MinimizeToTray = true;
         }
     }
 

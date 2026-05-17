@@ -140,6 +140,15 @@ export function SettingsPage() {
     setIsDirty(true);
   }, []);
 
+  // Handler for minimize-to-tray changes
+  const handleMinimizeToTrayChange = useCallback((value: boolean) => {
+    setLocalSettings((prev) => {
+      if (!prev) return prev;
+      return { ...prev, minimizeToTray: value };
+    });
+    setIsDirty(true);
+  }, []);
+
   // Handler for close action changes
   const handleCloseActionChange = useCallback((value: CloseAction) => {
     setLocalSettings((prev) => {
@@ -278,12 +287,14 @@ export function SettingsPage() {
               game={localSettings.game}
               display={localSettings.display}
               startMinimized={localSettings.startMinimized}
+              minimizeToTray={localSettings.minimizeToTray ?? true}
               closeAction={localSettings.closeAction}
               basePath={localSettings.basePath}
               onServerChange={handleServerChange}
               onGameChange={handleGameChange}
               onDisplayChange={handleDisplayChange}
               onStartMinimizedChange={handleStartMinimizedChange}
+              onMinimizeToTrayChange={handleMinimizeToTrayChange}
               onCloseActionChange={handleCloseActionChange}
               onBasePathChange={handleBasePathChange}
             />

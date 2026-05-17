@@ -29,6 +29,8 @@ interface GeneralSettingsProps {
   display?: Partial<DisplaySettingsType>;
   /** Whether to start minimized */
   startMinimized: boolean;
+  /** Whether the minimize button hides to the system tray (vs taskbar) */
+  minimizeToTray: boolean;
   /** What action to take on close */
   closeAction: CloseAction;
   /** Application base directory path */
@@ -41,6 +43,8 @@ interface GeneralSettingsProps {
   onDisplayChange: (display: Partial<DisplaySettingsType>) => void;
   /** Callback when start minimized changes */
   onStartMinimizedChange: (value: boolean) => void;
+  /** Callback when minimize-to-tray changes */
+  onMinimizeToTrayChange: (value: boolean) => void;
   /** Callback when close action changes */
   onCloseActionChange: (value: CloseAction) => void;
   /** Callback when base path changes */
@@ -64,12 +68,14 @@ export function GeneralSettings({
   game,
   display,
   startMinimized,
+  minimizeToTray,
   closeAction,
   basePath,
   onServerChange,
   onGameChange,
   onDisplayChange,
   onStartMinimizedChange,
+  onMinimizeToTrayChange,
   onCloseActionChange,
   onBasePathChange,
 }: GeneralSettingsProps) {
@@ -136,15 +142,30 @@ export function GeneralSettings({
 
         {/* App behavior & display */}
         <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="flex cursor-pointer items-center gap-3 pb-2">
-            <input
-              type="checkbox"
-              checked={startMinimized}
-              onChange={(e) => onStartMinimizedChange(e.target.checked)}
-              className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-d2-gold focus:ring-d2-gold focus:ring-offset-zinc-900"
-            />
-            <span className="text-sm text-zinc-300">Start Minimized</span>
-          </label>
+          <div className="flex flex-col gap-2 pb-2">
+            <label className="flex cursor-pointer items-center gap-3">
+              <input
+                type="checkbox"
+                checked={startMinimized}
+                onChange={(e) => onStartMinimizedChange(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-d2-gold focus:ring-d2-gold focus:ring-offset-zinc-900"
+              />
+              <span className="text-sm text-zinc-300">Start Minimized</span>
+            </label>
+
+            <label
+              className="flex cursor-pointer items-center gap-3"
+              title="When minimizing, hide to the system tray instead of the taskbar."
+            >
+              <input
+                type="checkbox"
+                checked={minimizeToTray}
+                onChange={(e) => onMinimizeToTrayChange(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-d2-gold focus:ring-d2-gold focus:ring-offset-zinc-900"
+              />
+              <span className="text-sm text-zinc-300">Minimize to Tray</span>
+            </label>
+          </div>
 
           <Select
             id="close-action"

@@ -47,6 +47,7 @@ message Settings {
   GameSettings game = 7;
   string base_path = 8; // Application base directory. Settings/profiles etc., will be created in data/ subdirectory. Expects to have a d2bs directory and d2bs.ini file inside.
   WindowSettings window = 9;
+  optional bool minimize_to_tray = 10; // When the minimize button or system minimize is invoked, hide to tray instead of the taskbar. Optional so absence can default to true.
 }
 
 message WindowSettings {

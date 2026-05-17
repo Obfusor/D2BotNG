@@ -104,7 +104,7 @@ public class MessageWindow : IDisposable
             throw new InvalidOperationException($"Failed to create message window: {error}");
         }
 
-        _logger.LogInformation("Created message-only window with handle: {Handle}", Handle);
+        _logger.LogDebug("Created message-only window with handle: {Handle}", Handle);
     }
 
     /// <summary>
