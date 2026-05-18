@@ -17,6 +17,7 @@ import type {
   DisplaySettings as DisplaySettingsType,
   GameSettings as GameSettingsType,
   LegacyApiSettings as LegacyApiSettingsType,
+  StartupSettings as StartupSettingsType,
 } from "@/generated/settings_pb";
 import {
   CloseAction,
@@ -130,6 +131,21 @@ export function SettingsPage() {
     });
     setIsDirty(true);
   }, []);
+
+  // Handler for startup pacing changes
+  const handleStartupChange = useCallback(
+    (updates: Partial<StartupSettingsType>) => {
+      setLocalSettings((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          startup: { ...prev.startup, ...updates } as StartupSettingsType,
+        };
+      });
+      setIsDirty(true);
+    },
+    [],
+  );
 
   // Handler for start minimized changes
   const handleStartMinimizedChange = useCallback((value: boolean) => {
@@ -286,6 +302,7 @@ export function SettingsPage() {
               server={localSettings.server}
               game={localSettings.game}
               display={localSettings.display}
+              startup={localSettings.startup}
               startMinimized={localSettings.startMinimized}
               minimizeToTray={localSettings.minimizeToTray ?? true}
               closeAction={localSettings.closeAction}
@@ -293,6 +310,7 @@ export function SettingsPage() {
               onServerChange={handleServerChange}
               onGameChange={handleGameChange}
               onDisplayChange={handleDisplayChange}
+              onStartupChange={handleStartupChange}
               onStartMinimizedChange={handleStartMinimizedChange}
               onMinimizeToTrayChange={handleMinimizeToTrayChange}
               onCloseActionChange={handleCloseActionChange}

@@ -48,6 +48,15 @@ message Settings {
   string base_path = 8; // Application base directory. Settings/profiles etc., will be created in data/ subdirectory. Expects to have a d2bs directory and d2bs.ini file inside.
   WindowSettings window = 9;
   optional bool minimize_to_tray = 10; // When the minimize button or system minimize is invoked, hide to tray instead of the taskbar. Optional so absence can default to true.
+  StartupSettings startup = 11;
+}
+
+// Controls how profile starts are paced. Each profile waits its turn (limited by
+// concurrency), waits delay_ms (with a per-second status countdown when >= 1s),
+// then launches. Used to avoid hammering Battle.net with simultaneous logins.
+message StartupSettings {
+  int32 concurrency = 1;  // Max profiles allowed to be starting at the same time. 0 = no limit.
+  int32 delay_ms = 2;     // Milliseconds to wait before launching each profile (after its turn). 0 = no wait.
 }
 
 message WindowSettings {

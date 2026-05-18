@@ -19,6 +19,7 @@ import { CloseAction, ItemFont } from "@/generated/settings_pb";
 import type { ServerSettings as ServerSettingsType } from "@/generated/settings_pb";
 import type { GameSettings as GameSettingsType } from "@/generated/settings_pb";
 import type { DisplaySettings as DisplaySettingsType } from "@/generated/settings_pb";
+import type { StartupSettings as StartupSettingsType } from "@/generated/settings_pb";
 
 interface GeneralSettingsProps {
   /** Current server settings */
@@ -27,6 +28,8 @@ interface GeneralSettingsProps {
   game?: Partial<GameSettingsType>;
   /** Current display settings */
   display?: Partial<DisplaySettingsType>;
+  /** Current startup pacing settings */
+  startup?: Partial<StartupSettingsType>;
   /** Whether to start minimized */
   startMinimized: boolean;
   /** Whether the minimize button hides to the system tray (vs taskbar) */
@@ -41,6 +44,8 @@ interface GeneralSettingsProps {
   onGameChange: (game: Partial<GameSettingsType>) => void;
   /** Callback when display settings change */
   onDisplayChange: (display: Partial<DisplaySettingsType>) => void;
+  /** Callback when startup pacing changes */
+  onStartupChange: (startup: Partial<StartupSettingsType>) => void;
   /** Callback when start minimized changes */
   onStartMinimizedChange: (value: boolean) => void;
   /** Callback when minimize-to-tray changes */
@@ -67,6 +72,7 @@ export function GeneralSettings({
   server,
   game,
   display,
+  startup,
   startMinimized,
   minimizeToTray,
   closeAction,
@@ -74,6 +80,7 @@ export function GeneralSettings({
   onServerChange,
   onGameChange,
   onDisplayChange,
+  onStartupChange,
   onStartMinimizedChange,
   onMinimizeToTrayChange,
   onCloseActionChange,
@@ -226,6 +233,43 @@ export function GeneralSettings({
             value={basePath}
             onChange={(e) => onBasePathChange(e.target.value)}
             onBrowse={() => setShowBasePathPicker(true)}
+          />
+        </div>
+
+        {/* Startup pacing */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Input
+            id="startup-concurrency"
+            label="Max Profiles Starting At Once"
+            tooltip="How many profiles can be starting at the same time. Extra profiles wait their turn. Combine with Startup Delay to space out logins. 0 = no limit."
+            type="number"
+            min={0}
+            placeholder="0"
+            autoComplete="off"
+            value={startup?.concurrency?.toString() ?? "0"}
+            onChange={(e) => {
+              const value = parseInt(e.target.value, 10);
+              onStartupChange({
+                concurrency: isNaN(value) ? 0 : Math.max(0, value),
+              });
+            }}
+          />
+
+          <Input
+            id="startup-delay"
+            label="Startup Delay (milliseconds)"
+            tooltip="How long each profile waits before launching, once it's its turn. Combine with Max Profiles Starting At Once to space out logins."
+            type="number"
+            min={0}
+            placeholder="0"
+            autoComplete="off"
+            value={startup?.delayMs?.toString() ?? "0"}
+            onChange={(e) => {
+              const value = parseInt(e.target.value, 10);
+              onStartupChange({
+                delayMs: isNaN(value) ? 0 : Math.max(0, value),
+              });
+            }}
           />
         </div>
       </CardContent>

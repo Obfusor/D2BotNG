@@ -122,6 +122,8 @@ public class SettingsRepository
         {
             settings.MinimizeToTray = true;
         }
+
+        settings.Startup ??= new StartupSettings();
     }
 
     public async Task<Settings> GetAsync()

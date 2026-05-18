@@ -30,6 +30,12 @@ public class ProfileEngine
     private const int HeartbeatTimeoutSeconds = 30;
     private const int MaxMissedHeartbeats = 3;
 
+    // Startup pacing. Profiles entering RunProfileAsync wait their turn on
+    // _startupSemaphore (if set), wait _startupDelayMs (with a 1Hz countdown),
+    // then launch. Both are mutated from the SettingsChanged callback.
+    private SemaphoreSlim? _startupSemaphore;
+    private volatile int _startupDelayMs;
+
     /// <summary>
     /// Set when the engine is being torn down for handoff to a successor process.
     /// In this mode, <see cref="StopAllAsync"/> skips game termination so the children
@@ -45,7 +51,8 @@ public class ProfileEngine
         GameLauncher gameLauncher,
         ProcessManager processManager,
         MessageWindow messageWindow,
-        Paths paths)
+        Paths paths,
+        SettingsRepository settingsRepository)
     {
         _logger = logger;
         _profileRepository = profileRepository;
@@ -55,6 +62,19 @@ public class ProfileEngine
         _processManager = processManager;
         _messageWindow = messageWindow;
         _paths = paths;
+
+        ApplyStartupSettings(settingsRepository.GetAsync().GetAwaiter().GetResult());
+        settingsRepository.SettingsChanged += (_, s) => ApplyStartupSettings(s);
+    }
+
+    private void ApplyStartupSettings(Settings settings)
+    {
+        var concurrency = Math.Max(0, settings.Startup?.Concurrency ?? 0);
+        _startupDelayMs = Math.Max(0, settings.Startup?.DelayMs ?? 0);
+
+        // Replace the semaphore; in-flight starts already hold a reference to the previous
+        // instance and will release it correctly. New starts use the fresh one.
+        _startupSemaphore = concurrency > 0 ? new SemaphoreSlim(concurrency, concurrency) : null;
     }
 
     private Task RunProfileBackgroundAsync(ProfileInstance instance)
@@ -528,6 +548,8 @@ public class ProfileEngine
                 await BroadcastKeyListsSnapshotAsync();
             }
 
+            await ApplyStartupPacingAsync(instance, cancellationToken);
+
             // Get current key info for command line
             string? classicKey = null;
             string? expansionKey = null;
@@ -592,6 +614,54 @@ public class ProfileEngine
 
             // Handle crash recovery
             await HandleCrashAsync(instance, cancellationToken);
+        }
+    }
+
+    private async Task ApplyStartupPacingAsync(ProfileInstance instance, CancellationToken cancellationToken)
+    {
+        // Snapshot the semaphore so a mid-flight settings change doesn't desync acquire/release.
+        var semaphore = _startupSemaphore;
+        var delayMs = _startupDelayMs;
+
+        if (semaphore == null && delayMs <= 0)
+        {
+            return;
+        }
+
+        var acquired = false;
+        try
+        {
+            if (semaphore != null)
+            {
+                instance.Status = "Waiting for my turn";
+                await NotifyProfileStateChangedAsync(instance.ProfileName);
+                await semaphore.WaitAsync(cancellationToken);
+                acquired = true;
+            }
+
+            var deadline = DateTime.UtcNow.AddMilliseconds(delayMs);
+            while (true)
+            {
+                var remaining = deadline - DateTime.UtcNow;
+                if (remaining <= TimeSpan.Zero) break;
+
+                var secondsLeft = (int)Math.Ceiling(remaining.TotalSeconds);
+                instance.Status = $"Starting in {secondsLeft}s...";
+                await NotifyProfileStateChangedAsync(instance.ProfileName);
+
+                var step = remaining < TimeSpan.FromSeconds(1) ? remaining : TimeSpan.FromSeconds(1);
+                await Task.Delay(step, cancellationToken);
+            }
+
+            instance.Status = "";
+            await NotifyProfileStateChangedAsync(instance.ProfileName);
+        }
+        finally
+        {
+            if (acquired)
+            {
+                semaphore!.Release();
+            }
         }
     }
 
