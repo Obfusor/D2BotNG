@@ -147,7 +147,7 @@ public class ProfileEngine
         return true;
     }
 
-    public async Task<bool> StopProfileAsync(string profileName, bool force = false, CancellationToken cancellationToken = default, [System.Runtime.CompilerServices.CallerMemberName] string? caller = null)
+    public async Task<bool> StopProfileAsync(string profileName, bool force = false, bool preserveKey = false, CancellationToken cancellationToken = default, [System.Runtime.CompilerServices.CallerMemberName] string? caller = null)
     {
         if (!_instances.TryGetValue(profileName, out var instance))
         {
@@ -183,7 +183,8 @@ public class ProfileEngine
 
         await instance.TransitionToAsync(RunState.Stopped);
         instance.Status = "";
-        instance.KeyName = null;
+        if (!preserveKey)
+            instance.KeyName = null;
         await NotifyProfileStateChangedAsync(profileName);
         await BroadcastKeyListsSnapshotAsync();
 
@@ -193,7 +194,7 @@ public class ProfileEngine
     public async Task RestartProfileAsync(string profileName, bool rotateKey = false, [System.Runtime.CompilerServices.CallerMemberName] string? caller = null)
     {
         _logger.LogDebug("Restarting profile {Name} (caller: {Caller})", profileName, caller);
-        await StopProfileAsync(profileName);
+        await StopProfileAsync(profileName, preserveKey: !rotateKey);
         if (rotateKey)
             await RotateKeyAsync(profileName);
         await Task.Delay(1000);
@@ -506,7 +507,16 @@ public class ProfileEngine
             CDKey? acquiredKey = null;
             if (!string.IsNullOrEmpty(profile.KeyList))
             {
-                acquiredKey = await AcquireKeyAsync(profile.KeyList);
+                // Reuse the previously-assigned key if still valid (e.g. restart
+                // after a crash without rotation). Skip if the key was Held in
+                // the meantime — fall through to rotate to a fresh one.
+                if (!string.IsNullOrEmpty(instance.KeyName))
+                {
+                    var keyList = await _keyListRepository.GetByKeyAsync(profile.KeyList);
+                    acquiredKey = keyList?.Keys.FirstOrDefault(k => k.Name == instance.KeyName && !k.Held);
+                }
+
+                acquiredKey ??= await AcquireKeyAsync(profile.KeyList);
                 if (acquiredKey == null)
                 {
                     await instance.SetErrorAsync("No available keys");
@@ -673,9 +683,6 @@ public class ProfileEngine
             await NotifyProfileStateChangedAsync(profileName, includeProfile: true);
         }
 
-        instance.KeyName = null;
-        await BroadcastKeyListsSnapshotAsync();
-
         if (instance.CrashCount < MaxCrashRetries)
         {
             _logger.LogWarning("Profile {Name} crashed, restarting ({Count}/{Max})",
@@ -720,8 +727,10 @@ public class ProfileEngine
             // Set error status before transitioning to Stopped so the message is preserved.
             // Do NOT use SetErrorAsync here — it would set state to Error, allowing restarts.
             instance.Status = $"Exceeded max crash retries ({MaxCrashRetries})";
+            instance.KeyName = null;
             await instance.TransitionToAsync(RunState.Stopped);
             await NotifyProfileStateChangedAsync(profileName, includeProfile: true);
+            await BroadcastKeyListsSnapshotAsync();
         }
     }
 

@@ -365,7 +365,7 @@ public class LegacyApiHandler
             return response;
         }
 
-        await _profileEngine.StopProfileAsync(profile.Name);
+        await _profileEngine.StopProfileAsync(profile.Name, preserveKey: true);
 
         if (request.Args.Length > 1 && request.Args[1].Equals("true", StringComparison.OrdinalIgnoreCase))
         {

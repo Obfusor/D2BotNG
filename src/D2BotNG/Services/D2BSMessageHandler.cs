@@ -146,7 +146,7 @@ public class D2BSMessageHandler : BackgroundService
                 break;
 
             case "restartProfile":
-                await HandleRestartProfileAsync(profile.Name);
+                await HandleRestartProfileAsync(profile.Name, args.Length > 1 && args[1].Equals("true", StringComparison.OrdinalIgnoreCase));
                 break;
 
             case "stop":
@@ -283,9 +283,20 @@ public class D2BSMessageHandler : BackgroundService
     private async Task HandleUpdateRunsAsync(Profile profile)
     {
         profile.Runs++;
+        var rollover = false;
         if (profile.RunsPerKey > 0)
+        {
             profile.KeyRuns++;
+            if (profile.KeyRuns >= profile.RunsPerKey)
+            {
+                profile.KeyRuns = 0;
+                rollover = true;
+            }
+        }
         await _profileEngine.UpdateProfileAndNotifyAsync(profile);
+
+        if (rollover)
+            await _profileEngine.RestartProfileAsync(profile.Name, rotateKey: profile.SwitchKeysOnRestart);
     }
 
     private async Task HandleUpdateChickensAsync(Profile profile)
@@ -406,9 +417,9 @@ public class D2BSMessageHandler : BackgroundService
         await _profileEngine.UpdateProfileAndNotifyAsync(profile);
     }
 
-    private async Task HandleRestartProfileAsync(string profileName)
+    private async Task HandleRestartProfileAsync(string profileName, bool rotateKey)
     {
-        await _profileEngine.RestartProfileAsync(profileName, rotateKey: true);
+        await _profileEngine.RestartProfileAsync(profileName, rotateKey: rotateKey);
     }
 
     private async Task HandleCDKeyDisabledAsync(Profile profile, string keyName)

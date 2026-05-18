@@ -95,7 +95,6 @@ public class ProfileInstance : IDisposable
         {
             State = RunState.Error;
             Status = error;
-            KeyName = null;
         }
         finally
         {
