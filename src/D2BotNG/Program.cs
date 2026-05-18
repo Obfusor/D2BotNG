@@ -417,6 +417,7 @@ internal static class Program
         services.AddHostedService<EngineHostedService>();
         services.AddHostedService<ErrorDialogWatcher>();
         services.AddHostedService<UpdateCheckBackgroundService>();
+        services.AddHostedService<GameDirectoryCleanupService>();
         services.AddHostedService<D2BSMessageHandler>();
         services.AddHostedService(sp => sp.GetRequiredService<DiscordService>());
         services.AddHostedService(sp => sp.GetRequiredService<GameActionScheduler>());

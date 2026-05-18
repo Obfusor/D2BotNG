@@ -236,6 +236,43 @@ export function GeneralSettings({
           />
         </div>
 
+        {/* Game directory cleanup */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Input
+            id="screenshot-retention-days"
+            label="Screenshot Retention (days)"
+            tooltip="Auto-delete Screenshot*.jpg files in the Diablo II install root older than this many days. 0 = disabled. Cleanup runs hourly."
+            type="number"
+            min={0}
+            placeholder="0"
+            autoComplete="off"
+            value={game?.screenshotRetentionDays?.toString() ?? "0"}
+            onChange={(e) => {
+              const value = parseInt(e.target.value, 10);
+              onGameChange({
+                screenshotRetentionDays: isNaN(value) ? 0 : Math.max(0, value),
+              });
+            }}
+          />
+
+          <Input
+            id="crash-log-retention-days"
+            label="Crash Log Retention (days)"
+            tooltip="Auto-delete BlizzardError subdirectories (game crash dumps) older than this many days. 0 = disabled. Cleanup runs hourly."
+            type="number"
+            min={0}
+            placeholder="0"
+            autoComplete="off"
+            value={game?.crashLogRetentionDays?.toString() ?? "0"}
+            onChange={(e) => {
+              const value = parseInt(e.target.value, 10);
+              onGameChange({
+                crashLogRetentionDays: isNaN(value) ? 0 : Math.max(0, value),
+              });
+            }}
+          />
+        </div>
+
         {/* Startup pacing */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Input

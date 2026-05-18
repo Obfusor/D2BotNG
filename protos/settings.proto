@@ -70,6 +70,8 @@ message WindowSettings {
 message GameSettings {
   string d2_install_path = 1;  // Diablo II installation path (defaults to registry or desktop)
   string game_version = 2;     // D2 version for patch selection (e.g., "1.14d", "1.13c"). Defaults to "1.14d".
+  int32 screenshot_retention_days = 3; // Auto-delete Screenshot*.jpg in the install root older than N days. 0 = disabled.
+  int32 crash_log_retention_days = 4;  // Auto-delete BlizzardError subdirectories older than N days. 0 = disabled.
 }
 
 message DisplaySettings {
