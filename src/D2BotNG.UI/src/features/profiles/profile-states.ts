@@ -20,11 +20,15 @@ export function canStart(state: RunState | undefined): boolean {
 /** Profile can be stopped (state allows transition to Stopping). */
 export function canStop(state: RunState | undefined): boolean {
   if (state === undefined) return false;
-  return state === RunState.RUNNING || state === RunState.ERROR;
+  return (
+    state === RunState.STARTING ||
+    state === RunState.RUNNING ||
+    state === RunState.ERROR
+  );
 }
 
 /** Profile is actively running with a game process (has a window). */
 export function isActive(state: RunState | undefined): boolean {
   if (state === undefined) return false;
-  return state === RunState.STARTING || state === RunState.RUNNING;
+  return state === RunState.RUNNING;
 }
