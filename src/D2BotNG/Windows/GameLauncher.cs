@@ -235,7 +235,7 @@ public class GameLauncher
                 throw new InvalidOperationException($"Game process exited with code {process.ExitCode}");
 
             process.Refresh();
-            if (process.MainWindowHandle != 0)
+            if (process.GameWindow != 0)
                 return;
 
             await Task.Delay(100, cancellationToken);

@@ -44,16 +44,18 @@ public static class Extensions
 
         /// <summary>
         /// The game's primary window, identified by class name match against known game
-        /// variants (see <see cref="GameWindowClassNames"/>). Falls back to
-        /// <see cref="Process.MainWindowHandle"/> when no top-level window matches — that's
-        /// reliable at launch time before the game has spawned secondary windows.
+        /// variants (see <see cref="GameWindowClassNames"/>). Returns 0 if no matching
+        /// window exists yet — used as the launch-readiness signal and as the stable
+        /// routing key for WM_COPYDATA from D2BS.
         /// </summary>
         /// <remarks>
-        /// We avoid <see cref="Process.MainWindowHandle"/> for ongoing operations because
-        /// it uses a heuristic (first top-level window meeting certain style criteria) that
-        /// can drift to a non-game window as the game's window set evolves — especially
-        /// after a handoff where the successor process inspects a long-running game and
-        /// gets a different "main" than the predecessor saw at launch.
+        /// We deliberately do not fall back to <see cref="Process.MainWindowHandle"/>:
+        /// it uses a heuristic (first top-level window meeting certain style criteria)
+        /// that can resolve to a non-game window — a launcher/splash hwnd during startup,
+        /// or a drifted top-level after a handoff where the successor inspects a
+        /// long-running game and gets a different "main" than the predecessor saw at
+        /// launch. Either case mis-routes the handle map and silently drops every
+        /// message from that profile.
         /// </remarks>
         public nint GameWindow
         {
@@ -70,7 +72,7 @@ public static class Extensions
                     }
                 }
 
-                return proc.MainWindowHandle;
+                return 0;
             }
         }
     }
