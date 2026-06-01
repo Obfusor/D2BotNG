@@ -29,6 +29,9 @@ public class ProfileInstance : IDisposable
     // Key tracking
     public string? KeyName { get; set; }
 
+    // Proxy currently in use - the address the running game launched with; null = direct
+    public string? ProxyName { get; set; }
+
     public ProfileInstance(string profileName)
     {
         ProfileName = profileName;
@@ -76,6 +79,7 @@ public class ProfileInstance : IDisposable
         RunState state,
         string status,
         string? keyName,
+        string? proxyName,
         int crashCount,
         int missedHeartbeats,
         DateTime? startedAt,
@@ -86,6 +90,7 @@ public class ProfileInstance : IDisposable
         State = state;
         Status = status;
         KeyName = keyName;
+        ProxyName = proxyName;
         CrashCount = crashCount;
         MissedHeartbeats = missedHeartbeats;
         StartedAt = startedAt;
@@ -115,6 +120,7 @@ public class ProfileInstance : IDisposable
             State = State,
             Status = Status,
             KeyName = KeyName ?? "",
+            ProxyName = ProxyName ?? "",
             WindowVisible = hwnd != 0 && IsWindowVisible(hwnd)
         };
     }

@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import {
   UserGroupIcon,
   KeyIcon,
+  GlobeAltIcon,
   ClockIcon,
   UserIcon,
   Cog6ToothIcon,
@@ -16,6 +17,7 @@ const navigation = [
   { name: "Keys", href: "/keys", icon: KeyIcon },
   { name: "Schedules", href: "/schedules", icon: ClockIcon },
   { name: "Characters", href: "/characters", icon: UserIcon },
+  { name: "Proxies", href: "/proxies", icon: GlobeAltIcon },
   { name: "Settings", href: "/settings", icon: Cog6ToothIcon },
 ];
 

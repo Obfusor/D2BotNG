@@ -16,6 +16,7 @@ public class SettingsServiceImpl : SettingsService.SettingsServiceBase
     private readonly SettingsRepository _settingsRepository;
     private readonly ProfileRepository _profileRepository;
     private readonly KeyListRepository _keyListRepository;
+    private readonly ProxyRepository _proxyRepository;
     private readonly ScheduleRepository _scheduleRepository;
     private readonly PatchRepository _patchRepository;
     private readonly ProfileEngine _profileEngine;
@@ -25,6 +26,7 @@ public class SettingsServiceImpl : SettingsService.SettingsServiceBase
         SettingsRepository settingsRepository,
         ProfileRepository profileRepository,
         KeyListRepository keyListRepository,
+        ProxyRepository proxyRepository,
         ScheduleRepository scheduleRepository,
         PatchRepository patchRepository,
         ProfileEngine profileEngine,
@@ -33,6 +35,7 @@ public class SettingsServiceImpl : SettingsService.SettingsServiceBase
         _settingsRepository = settingsRepository;
         _profileRepository = profileRepository;
         _keyListRepository = keyListRepository;
+        _proxyRepository = proxyRepository;
         _scheduleRepository = scheduleRepository;
         _patchRepository = patchRepository;
         _profileEngine = profileEngine;
@@ -54,6 +57,7 @@ public class SettingsServiceImpl : SettingsService.SettingsServiceBase
             // Reload all repositories from new path
             await _profileRepository.ReloadAsync();
             await _keyListRepository.ReloadAsync();
+            await _proxyRepository.ReloadAsync();
             await _scheduleRepository.ReloadAsync();
             await _patchRepository.ReloadAsync();
         }
@@ -70,6 +74,7 @@ public class SettingsServiceImpl : SettingsService.SettingsServiceBase
         {
             await _profileEngine.BroadcastProfilesSnapshotAsync();
             await _profileEngine.BroadcastKeyListsSnapshotAsync();
+            await _profileEngine.BroadcastProxiesSnapshotAsync();
             await BroadcastSchedulesSnapshotAsync();
         }
 

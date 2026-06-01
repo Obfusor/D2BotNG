@@ -198,6 +198,12 @@ public class GameLauncher
             sb.Append($"-d2c \"{config.ClassicKey}\" -d2x \"{config.ExpansionKey}\" ");
         }
 
+        // 1b. SOCKS5 proxy (if configured) - consumed by the D2BS connect hook
+        if (!string.IsNullOrEmpty(config.ProxyAddress))
+        {
+            sb.Append($"-proxy \"{config.ProxyAddress}\" ");
+        }
+
         // 2. Profile name (unless user has -L flag for custom loader)
         var userParams = config.Parameters ?? "";
         if (!userParams.Contains("-L"))

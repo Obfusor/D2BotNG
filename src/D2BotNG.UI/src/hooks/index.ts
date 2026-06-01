@@ -24,6 +24,16 @@ export {
 } from "./useKeys";
 export type { KeyListInput } from "./useKeys";
 
+// Proxy hooks (mutations only - data comes from event store)
+export {
+  useCreateProxy,
+  useUpdateProxy,
+  useDeleteProxy,
+  useImportProxies,
+  useProxyTester,
+} from "./useProxies";
+export type { UpdateProxyInput, ProxyTestResult } from "./useProxies";
+
 // Schedule hooks (mutations only - data comes from event store)
 export {
   useCreateSchedule,

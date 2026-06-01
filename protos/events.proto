@@ -13,6 +13,7 @@ import "items.proto";
 import "settings.proto";
 import "updates.proto";
 import "logging.proto";
+import "proxies.proto";
 
 // Message color codes (values match reference implementation)
 enum MessageColor {
@@ -50,6 +51,7 @@ message Event {
     ProfilesSnapshot profiles_snapshot = 10;
     KeyListsSnapshot key_lists_snapshot = 11;
     SchedulesSnapshot schedules_snapshot = 12;
+    ProxiesSnapshot proxies_snapshot = 13;
 
     // Profile events
     ProfileState profile_state = 23;
@@ -98,6 +100,17 @@ message KeyUsage {
 
 message SchedulesSnapshot {
   repeated Schedule schedules = 1;
+}
+
+message ProxiesSnapshot {
+  repeated ProxyWithUsage proxies = 1;
+}
+
+// Per-proxy usage: which profiles are configured to use it vs currently running with it.
+message ProxyWithUsage {
+  Proxy proxy = 1;
+  repeated string configured_profiles = 2;  // Profiles whose configured proxy is this one (persisted)
+  repeated string active_profiles = 3;      // Profiles currently running with this proxy (runtime)
 }
 
 

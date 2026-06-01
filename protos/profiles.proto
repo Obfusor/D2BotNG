@@ -43,6 +43,9 @@ message Profile {
   bool visible = 40;            // Window visibility on start
   optional WindowLocation window_location = 52;
 
+  // Network
+  string proxy = 32;            // Address of the proxy (from the Proxies tab) this profile uses. Empty = direct connection.
+
   // Account Settings
   string character = 13;
   Realm realm = 14;
@@ -98,6 +101,7 @@ message ProfileState {
   string status = 3;  // Human-readable status text (state description or error message)
 
   string key_name = 20;
+  string proxy_name = 21;  // Proxy currently in use by the running instance (runtime)
 
   // Window visibility
   bool window_visible = 30;

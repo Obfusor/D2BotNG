@@ -41,6 +41,8 @@ public class HandoffProfile
 
     [JsonPropertyName("keyName")] public string? KeyName { get; set; }
 
+    [JsonPropertyName("proxyName")] public string? ProxyName { get; set; }
+
     [JsonPropertyName("crashCount")] public int CrashCount { get; set; }
 
     [JsonPropertyName("startedAt")] public DateTime? StartedAt { get; set; }

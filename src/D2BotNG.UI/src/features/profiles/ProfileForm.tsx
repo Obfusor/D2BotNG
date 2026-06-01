@@ -23,6 +23,7 @@ import {
 } from "@/components/discord/DiscordWebhooksList";
 import {
   useKeyLists,
+  useProxies,
   useSchedules,
   useProfiles,
   useSettings,
@@ -81,6 +82,7 @@ export function ProfileForm({
   const defaults = profile ?? initialValues;
   // Get key lists, schedules, existing profiles, and settings from event store
   const keyListsData = useKeyLists();
+  const proxiesData = useProxies();
   const schedulesData = useSchedules();
   const profilesData = useProfiles();
   const settings = useSettings();
@@ -110,6 +112,7 @@ export function ProfileForm({
   const [entryScript, setEntryScript] = useState(defaults?.entryScript ?? "");
   const [infoTag, setInfoTag] = useState(defaults?.infoTag ?? "");
   const [keyList, setKeyList] = useState(defaults?.keyList ?? "");
+  const [proxy, setProxy] = useState(defaults?.proxy ?? "");
   const [schedule, setSchedule] = useState(defaults?.schedule ?? "");
   const [runsPerKey, setRunsPerKey] = useState(defaults?.runsPerKey ?? 0);
   const [switchKeysOnRestart, setSwitchKeysOnRestart] = useState(
@@ -165,6 +168,7 @@ export function ProfileForm({
       setEntryScript(defaults.entryScript ?? "");
       setInfoTag(defaults.infoTag ?? "");
       setKeyList(defaults.keyList ?? "");
+      setProxy(defaults.proxy ?? "");
       setSchedule(defaults.schedule ?? "");
       setRunsPerKey(defaults.runsPerKey ?? 0);
       setSwitchKeysOnRestart(defaults.switchKeysOnRestart ?? false);
@@ -191,6 +195,18 @@ export function ProfileForm({
       label: kl.keyList.name,
     })),
   ];
+
+  // Build proxy options (value and label are both the full address)
+  const proxyOptions = [
+    { value: "", label: "None" },
+    ...proxiesData.map((p) => ({
+      value: p.proxy.address,
+      label: p.proxy.address,
+    })),
+  ];
+  if (proxy && !proxiesData.some((p) => p.proxy.address === proxy)) {
+    proxyOptions.push({ value: proxy, label: proxy });
+  }
 
   // Build schedule options
   const scheduleOptions = [
@@ -262,6 +278,7 @@ export function ProfileForm({
         entryScript,
         infoTag,
         keyList: keyList || undefined,
+        proxy: proxy || undefined,
         schedule: schedule || undefined,
         runsPerKey,
         switchKeysOnRestart,
@@ -293,6 +310,7 @@ export function ProfileForm({
       entryScript,
       infoTag,
       keyList,
+      proxy,
       schedule,
       runsPerKey,
       switchKeysOnRestart,
@@ -469,6 +487,13 @@ export function ProfileForm({
               value={keyList}
               onChange={(e) => setKeyList(e.target.value)}
               options={keyListOptions}
+            />
+            <Select
+              id="proxy"
+              label="Proxy"
+              value={proxy}
+              onChange={(e) => setProxy(e.target.value)}
+              options={proxyOptions}
             />
             <Input
               id="runsPerKey"

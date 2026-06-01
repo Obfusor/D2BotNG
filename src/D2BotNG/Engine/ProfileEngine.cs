@@ -17,6 +17,7 @@ public class ProfileEngine
     private readonly ILogger<ProfileEngine> _logger;
     private readonly ProfileRepository _profileRepository;
     private readonly KeyListRepository _keyListRepository;
+    private readonly ProxyRepository _proxyRepository;
     private readonly EventBroadcaster _eventBroadcaster;
     private readonly GameLauncher _gameLauncher;
     private readonly ProcessManager _processManager;
@@ -48,6 +49,7 @@ public class ProfileEngine
         ILogger<ProfileEngine> logger,
         ProfileRepository profileRepository,
         KeyListRepository keyListRepository,
+        ProxyRepository proxyRepository,
         EventBroadcaster eventBroadcaster,
         GameLauncher gameLauncher,
         ProcessManager processManager,
@@ -58,6 +60,7 @@ public class ProfileEngine
         _logger = logger;
         _profileRepository = profileRepository;
         _keyListRepository = keyListRepository;
+        _proxyRepository = proxyRepository;
         _eventBroadcaster = eventBroadcaster;
         _gameLauncher = gameLauncher;
         _processManager = processManager;
@@ -213,8 +216,10 @@ public class ProfileEngine
         instance.Status = "";
         if (!preserveKey)
             instance.KeyName = null;
+        instance.ProxyName = null;
         await NotifyProfileStateChangedAsync(profileName);
         await BroadcastKeyListsSnapshotAsync();
+        await BroadcastProxiesSnapshotAsync();
 
         return true;
     }
@@ -467,6 +472,44 @@ public class ProfileEngine
         });
     }
 
+    public async Task<ProxiesSnapshot> BuildProxiesSnapshotAsync()
+    {
+        var snapshot = new ProxiesSnapshot();
+        var proxies = (await _proxyRepository.GetAllAsync())
+            .OrderBy(p => p.Address, StringComparer.OrdinalIgnoreCase);
+        var profiles = await _profileRepository.GetAllAsync();
+
+        foreach (var proxy in proxies)
+        {
+            var usage = new ProxyWithUsage { Proxy = proxy };
+            foreach (var profile in profiles)
+            {
+                if (profile.Proxy == proxy.Address)
+                {
+                    usage.ConfiguredProfiles.Add(profile.Name);
+                }
+
+                if (GetInstance(profile.Name)?.ProxyName == proxy.Address)
+                {
+                    usage.ActiveProfiles.Add(profile.Name);
+                }
+            }
+
+            snapshot.Proxies.Add(usage);
+        }
+
+        return snapshot;
+    }
+
+    public async Task BroadcastProxiesSnapshotAsync()
+    {
+        _eventBroadcaster.Broadcast(new Event
+        {
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            ProxiesSnapshot = await BuildProxiesSnapshotAsync()
+        });
+    }
+
     #endregion
 
     public async Task<bool> ResetStatsAsync(string profileName)
@@ -556,6 +599,10 @@ public class ProfileEngine
                 await BroadcastKeyListsSnapshotAsync();
             }
 
+            // Claim the configured proxy for usage tracking (runtime property, like KeyName).
+            instance.ProxyName = string.IsNullOrEmpty(profile.Proxy) ? null : profile.Proxy;
+            await BroadcastProxiesSnapshotAsync();
+
             await ApplyStartupPacingAsync(instance, cancellationToken);
 
             // Get current key info for command line
@@ -582,7 +629,8 @@ public class ProfileEngine
                 ClassicKey = classicKey,
                 ExpansionKey = expansionKey,
                 WindowLocation = profile.WindowLocation,
-                Visible = profile.Visible
+                Visible = profile.Visible,
+                ProxyAddress = profile.Proxy
             };
 
             // Launch game
@@ -836,9 +884,11 @@ public class ProfileEngine
             // Do NOT use SetErrorAsync here — it would set state to Error, allowing restarts.
             instance.Status = $"Exceeded max crash retries ({_maxCrashRetries})";
             instance.KeyName = null;
+            instance.ProxyName = null;
             await instance.TransitionToAsync(RunState.Stopped);
             await NotifyProfileStateChangedAsync(profileName, includeProfile: true);
             await BroadcastKeyListsSnapshotAsync();
+            await BroadcastProxiesSnapshotAsync();
         }
     }
 
@@ -912,6 +962,7 @@ public class ProfileEngine
                 State = instance.State,
                 Status = instance.Status,
                 KeyName = instance.KeyName,
+                ProxyName = instance.ProxyName,
                 CrashCount = instance.CrashCount,
                 StartedAt = instance.StartedAt,
                 Handle = registeredHandle
@@ -983,6 +1034,7 @@ public class ProfileEngine
                 snapshot.State,
                 snapshot.Status,
                 snapshot.KeyName,
+                snapshot.ProxyName,
                 snapshot.CrashCount,
                 missedHeartbeats: 0,
                 snapshot.StartedAt,
@@ -1022,6 +1074,7 @@ public class ProfileEngine
         }
 
         await BroadcastKeyListsSnapshotAsync();
+        await BroadcastProxiesSnapshotAsync();
     }
 
     private Task ResumeMonitoringBackgroundAsync(ProfileInstance instance)

@@ -7,6 +7,7 @@ option csharp_namespace = "D2BotNG.Core.Protos";
 import "profiles.proto";
 import "keys.proto";
 import "schedules.proto";
+import "proxies.proto";
 
 // Simple list wrappers for file storage (no runtime state like ProfileStatus/KeyUsage)
 message ProfileList {
@@ -19,4 +20,8 @@ message KeyListCollection {
 
 message ScheduleList {
   repeated Schedule schedules = 1;
+}
+
+message ProxyCollection {
+  repeated Proxy proxies = 1;
 }

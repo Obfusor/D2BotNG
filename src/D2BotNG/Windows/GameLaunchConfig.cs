@@ -33,4 +33,10 @@ public class GameLaunchConfig
     /// Whether to show the game window (default true)
     /// </summary>
     public bool Visible { get; init; } = true;
+
+    /// <summary>
+    /// SOCKS5 proxy passed through to the game as -proxy (e.g. socks5://user:pass@host:port).
+    /// Null or empty means no -proxy argument is added.
+    /// </summary>
+    public string? ProxyAddress { get; init; }
 }

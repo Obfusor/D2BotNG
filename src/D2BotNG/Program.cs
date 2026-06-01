@@ -361,6 +361,7 @@ internal static class Program
         services.AddSingleton<Paths>();
         services.AddSingleton<ProfileRepository>();
         services.AddSingletonWithHandoff<KeyListRepository>();
+        services.AddSingleton<ProxyRepository>();
         services.AddSingleton<ScheduleRepository>();
         services.AddSingleton<ItemRepository>();
         services.AddSingleton<PatchRepository>();
@@ -453,6 +454,7 @@ internal static class Program
         // Map gRPC services
         app.MapGrpcService<ProfileServiceImpl>().EnableGrpcWeb();
         app.MapGrpcService<KeyServiceImpl>().EnableGrpcWeb();
+        app.MapGrpcService<ProxyServiceImpl>().EnableGrpcWeb();
         app.MapGrpcService<ScheduleServiceImpl>().EnableGrpcWeb();
         app.MapGrpcService<SettingsServiceImpl>().EnableGrpcWeb();
         app.MapGrpcService<EventServiceImpl>().EnableGrpcWeb();

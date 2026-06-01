@@ -15,6 +15,7 @@ import type { Settings } from "@/generated/settings_pb";
 import type { UpdateStatus } from "@/generated/updates_pb";
 import type { Event, KeyUsage, MessageColor } from "@/generated/events_pb";
 import type { LogLevelEntry } from "@/generated/logging_pb";
+import type { Proxy } from "@/generated/proxies_pb";
 
 const MAX_MESSAGES = 10_000;
 
@@ -43,6 +44,13 @@ export interface KeyListWithUsageData {
   usage: KeyUsage[];
 }
 
+/** Proxy combined with usage (profiles configured with it vs currently running with it) */
+export interface ProxyWithUsageData {
+  proxy: Proxy;
+  configuredProfiles: string[];
+  activeProfiles: string[];
+}
+
 interface EventState {
   // Connection status
   isConnected: boolean;
@@ -56,6 +64,9 @@ interface EventState {
 
   // Key Lists (Map by ID)
   keyLists: Map<string, KeyListWithUsageData>;
+
+  // Proxies (Map by address)
+  proxies: Map<string, ProxyWithUsageData>;
 
   // Schedules (Map by ID)
   schedules: Map<string, Schedule>;
@@ -90,6 +101,7 @@ export const useEventStore = create<EventState>((set, get) => ({
   hasReceivedInitialData: false,
   profiles: new Map(),
   keyLists: new Map(),
+  proxies: new Map(),
   schedules: new Map(),
   entitiesVersion: 0,
   settings: null,
@@ -108,6 +120,7 @@ export const useEventStore = create<EventState>((set, get) => ({
     // Working copies — only cloned on first write of the batch.
     let profiles = state.profiles;
     let keyLists = state.keyLists;
+    let proxies = state.proxies;
     let schedules = state.schedules;
     let settings = state.settings;
     let updateStatus = state.updateStatus;
@@ -119,6 +132,7 @@ export const useEventStore = create<EventState>((set, get) => ({
 
     let profilesDirty = false;
     let keyListsDirty = false;
+    let proxiesDirty = false;
     let schedulesDirty = false;
     let settingsDirty = false;
     let updateStatusDirty = false;
@@ -161,6 +175,23 @@ export const useEventStore = create<EventState>((set, get) => ({
           }
           keyLists = m;
           keyListsDirty = true;
+          break;
+        }
+
+        case "proxiesSnapshot": {
+          const snapshot = event.event.value;
+          const m = new Map<string, ProxyWithUsageData>();
+          for (const p of snapshot.proxies) {
+            if (p.proxy) {
+              m.set(p.proxy.address, {
+                proxy: p.proxy,
+                configuredProfiles: p.configuredProfiles,
+                activeProfiles: p.activeProfiles,
+              });
+            }
+          }
+          proxies = m;
+          proxiesDirty = true;
           break;
         }
 
@@ -267,6 +298,7 @@ export const useEventStore = create<EventState>((set, get) => ({
     if (hasReceivedInitialDataDirty)
       update.hasReceivedInitialData = hasReceivedInitialData;
     if (keyListsDirty) update.keyLists = keyLists;
+    if (proxiesDirty) update.proxies = proxies;
     if (schedulesDirty) update.schedules = schedules;
     if (settingsDirty) update.settings = settings;
     if (updateStatusDirty) update.updateStatus = updateStatus;
@@ -297,6 +329,7 @@ export const useEventStore = create<EventState>((set, get) => ({
       hasReceivedInitialData: false,
       profiles: new Map(),
       keyLists: new Map(),
+      proxies: new Map(),
       schedules: new Map(),
       entitiesVersion: 0,
       settings: null,
@@ -353,6 +386,13 @@ export function useAllProfileStates(): Record<string, ProfileState> {
 export function useKeyLists(): KeyListWithUsageData[] {
   return useEventStore(
     useShallow((state) => Array.from(state.keyLists.values())),
+  );
+}
+
+/** Get all proxies as an array (already sorted by the backend; memoized with shallow equality) */
+export function useProxies(): ProxyWithUsageData[] {
+  return useEventStore(
+    useShallow((state) => Array.from(state.proxies.values())),
   );
 }
 

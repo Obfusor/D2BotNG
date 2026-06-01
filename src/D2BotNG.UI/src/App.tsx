@@ -10,6 +10,7 @@ import {
 import { UpdateNotification } from "./components/UpdateNotification";
 import { ProfilesPage, ProfileDetailPage } from "@/features/profiles";
 import { KeysPage } from "@/features/keys";
+import { ProxiesPage } from "@/features/proxies";
 import { SchedulesPage } from "@/features/schedules";
 import { CharactersPage } from "@/features/characters";
 import { SettingsPage } from "@/features/settings";
@@ -55,6 +56,7 @@ export default function App() {
 
           {/* Other main routes */}
           <Route path="keys" element={<KeysPage />} />
+          <Route path="proxies" element={<ProxiesPage />} />
           <Route path="schedules" element={<SchedulesPage />} />
           <Route path="characters" element={<CharactersPage />} />
           <Route path="settings" element={<SettingsPage />} />

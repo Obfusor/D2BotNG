@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package d2bot;
+
+option csharp_namespace = "D2BotNG.Core.Protos";
+
+import "google/protobuf/empty.proto";
+
+// Proxy management service - mutations return Empty, data arrives via events
+service ProxyService {
+  rpc CreateProxy(Proxy) returns (google.protobuf.Empty);
+  rpc UpdateProxy(UpdateProxyRequest) returns (google.protobuf.Empty);
+  rpc DeleteProxy(DeleteProxyRequest) returns (google.protobuf.Empty);
+
+  // Bulk add from a pasted list (one proxy per line)
+  rpc ImportProxies(ImportProxiesRequest) returns (ImportProxiesResponse);
+
+  // Test a proxy: open the SOCKS5 tunnel (+ auth) and CONNECT to a Battle.net gateway
+  rpc TestProxy(TestProxyRequest) returns (TestProxyResponse);
+}
+
+// A proxy is identified by its address - there is no separate name.
+message Proxy {
+  string address = 1;  // socks5://[user:pass@]host:port, passed verbatim to -proxy
+}
+
+message UpdateProxyRequest {
+  Proxy proxy = 1;
+  optional string original_address = 2;  // Set when changing an existing proxy's address
+}
+
+message DeleteProxyRequest {
+  string address = 1;
+}
+
+message ImportProxiesRequest {
+  string text = 1;  // One proxy per line: socks5://[user:pass@]host:port or host:port[:user:pass]
+}
+
+message ImportProxiesResponse {
+  uint32 added = 1;
+  uint32 skipped = 2;  // Lines that were invalid or duplicates of existing proxies
+}
+
+message TestProxyRequest {
+  string address = 1;  // socks5://[user:pass@]host:port
+}
+
+message TestProxyResponse {
+  bool success = 1;
+  string message = 2;     // Success summary or error details
+  int32 latency_ms = 3;   // Tunnel + CONNECT round-trip in milliseconds (on success)
+}

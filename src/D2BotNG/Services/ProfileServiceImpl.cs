@@ -32,6 +32,7 @@ public class ProfileServiceImpl : ProfileService.ProfileServiceBase
         var profile = await _profileRepository.CreateAsync(request);
         _profileEngine.AddProfile(profile.Name);
         await _profileEngine.BroadcastProfilesSnapshotAsync();
+        await _profileEngine.BroadcastProxiesSnapshotAsync();
 
         return new Empty();
     }
@@ -64,6 +65,7 @@ public class ProfileServiceImpl : ProfileService.ProfileServiceBase
             await _profileEngine.NotifyProfileStateChangedAsync(profile.Name, includeProfile: true);
         }
 
+        await _profileEngine.BroadcastProxiesSnapshotAsync();
         return new Empty();
     }
 
@@ -76,6 +78,7 @@ public class ProfileServiceImpl : ProfileService.ProfileServiceBase
             _profileEngine.RemoveProfile(name);
         }
         await _profileEngine.BroadcastProfilesSnapshotAsync();
+        await _profileEngine.BroadcastProxiesSnapshotAsync();
 
         return new Empty();
     }

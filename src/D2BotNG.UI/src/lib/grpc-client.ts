@@ -13,6 +13,7 @@ import { getAuthPassword, triggerAuthRequired } from "./auth";
 import { EventService } from "../generated/events_pb";
 import { ItemService } from "../generated/items_pb";
 import { KeyService } from "../generated/keys_pb";
+import { ProxyService } from "../generated/proxies_pb";
 import { ProfileService } from "../generated/profiles_pb";
 import { ScheduleService } from "../generated/schedules_pb";
 import { SettingsService, FileService } from "../generated/settings_pb";
@@ -122,6 +123,13 @@ export const profileClient = createClient(ProfileService, commandTransport);
  * - Key status dashboard
  */
 export const keyClient = createClient(KeyService, commandTransport);
+
+/**
+ * Proxy management client
+ * - Proxy CRUD + bulk import
+ * - SOCKS5 connection test
+ */
+export const proxyClient = createClient(ProxyService, transport);
 
 /**
  * Schedule management client

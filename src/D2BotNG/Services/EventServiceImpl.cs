@@ -88,6 +88,14 @@ public class EventServiceImpl : EventService.EventServiceBase
             KeyListsSnapshot = keyListsSnapshot
         }, ct);
 
+        // 2b. Proxies snapshot with usage
+        var proxiesSnapshot = await _profileEngine.BuildProxiesSnapshotAsync();
+        await responseStream.WriteAsync(new Event
+        {
+            Timestamp = now,
+            ProxiesSnapshot = proxiesSnapshot
+        }, ct);
+
         // 3. Schedules snapshot
         var schedulesSnapshot = await BuildSchedulesSnapshotAsync();
         await responseStream.WriteAsync(new Event
