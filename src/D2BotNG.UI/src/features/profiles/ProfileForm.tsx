@@ -70,9 +70,6 @@ const modeOptions = [
   { value: String(GameMode.TCP_JOIN), label: "TCP/IP Join" },
 ];
 
-// Modes that require account/password
-const battleNetModes = [GameMode.BATTLE_NET, GameMode.OPEN_BATTLE_NET];
-
 export function ProfileForm({
   profile,
   initialValues,
@@ -201,15 +198,14 @@ export function ProfileForm({
     ...schedulesData.map((s) => ({ value: s.name, label: s.name })),
   ];
 
-  // Validation
-  const requiresAccount = battleNetModes.includes(mode);
-
   // Check if name is a duplicate (for new profiles, or renames to an existing name)
   const trimmedNameLower = name.trim().toLowerCase();
   const isSameName = profile && profile.name.toLowerCase() === trimmedNameLower;
   const isDuplicateName = !isSameName && existingNames.has(trimmedNameLower);
 
-  // Validation errors (only shown when field is touched)
+  // Validation errors (only shown when field is touched). Account, password and
+  // character are intentionally optional — some automation workflows don't use
+  // them — so only the structural fields needed to launch are required.
   const errors = {
     name:
       touched.name && name.trim() === ""
@@ -221,21 +217,9 @@ export function ProfileForm({
       touched.d2Path && d2Path.trim() === ""
         ? "Diablo II path is required"
         : undefined,
-    character:
-      touched.character && character.trim() === ""
-        ? "Character name is required"
-        : undefined,
     entryScript:
       touched.entryScript && entryScript.trim() === ""
         ? "Entry script is required"
-        : undefined,
-    account:
-      touched.account && requiresAccount && account.trim() === ""
-        ? "Account is required for Battle.net"
-        : undefined,
-    password:
-      touched.password && requiresAccount && password.trim() === ""
-        ? "Password is required for Battle.net"
         : undefined,
   };
 
@@ -243,9 +227,7 @@ export function ProfileForm({
     name.trim() !== "" &&
     !isDuplicateName &&
     d2Path.trim() !== "" &&
-    character.trim() !== "" &&
     entryScript.trim() !== "" &&
-    (!requiresAccount || (account.trim() !== "" && password.trim() !== "")) &&
     discordWebhooks.every((w) => w.url.trim() !== "");
 
   const handleSubmit = useCallback(
@@ -258,10 +240,7 @@ export function ProfileForm({
           ...prev,
           name: true,
           d2Path: true,
-          character: true,
           entryScript: true,
-          account: true,
-          password: true,
           webhooks: true,
         }));
         return;
@@ -336,13 +315,6 @@ export function ProfileForm({
             {/* Basic Info */}
             <div className="grid gap-2 sm:grid-cols-3">
               <Input
-                id="group"
-                label="Group"
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-                placeholder="e.g., Farming, Keys, Testing"
-              />
-              <Input
                 id="name"
                 label="Profile Name"
                 value={name}
@@ -350,6 +322,13 @@ export function ProfileForm({
                 onBlur={() => handleBlur("name")}
                 placeholder="My Bot Profile"
                 error={errors.name}
+              />
+              <Input
+                id="group"
+                label="Group"
+                value={group}
+                onChange={(e) => setGroup(e.target.value)}
+                placeholder="e.g., Farming, Keys, Testing"
               />
               <Input
                 id="parameters"
@@ -402,16 +381,37 @@ export function ProfileForm({
               </div>
             </div>
 
-            {/* Account & Game - combined row */}
+            {/* Connection & account */}
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Select
+                id="mode"
+                label="Game Mode"
+                value={String(mode)}
+                onChange={(e) => setMode(Number(e.target.value) as GameMode)}
+                options={modeOptions}
+              />
+              <Input
+                id="account"
+                label="Account"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                placeholder="Account name"
+                autoComplete="off"
+              />
+              <PasswordInput
+                id="password"
+                label="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Account password"
+                autoComplete="new-password"
+              />
               <Input
                 id="character"
                 label="Character"
                 value={character}
                 onChange={(e) => setCharacter(e.target.value)}
-                onBlur={() => handleBlur("character")}
                 placeholder="Character name"
-                error={errors.character}
               />
               <Select
                 id="realm"
@@ -419,13 +419,6 @@ export function ProfileForm({
                 value={String(realm)}
                 onChange={(e) => setRealm(Number(e.target.value) as Realm)}
                 options={realmOptions}
-              />
-              <Select
-                id="mode"
-                label="Game Mode"
-                value={String(mode)}
-                onChange={(e) => setMode(Number(e.target.value) as GameMode)}
-                options={modeOptions}
               />
               <Select
                 id="difficulty"
@@ -450,30 +443,6 @@ export function ProfileForm({
                 onChange={(e) => setGamePass(e.target.value)}
                 placeholder="Game password"
               />
-              {requiresAccount && (
-                <>
-                  <Input
-                    id="account"
-                    label="Account"
-                    value={account}
-                    onChange={(e) => setAccount(e.target.value)}
-                    onBlur={() => handleBlur("account")}
-                    placeholder="Account name"
-                    error={errors.account}
-                    autoComplete="off"
-                  />
-                  <PasswordInput
-                    id="password"
-                    label="Password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onBlur={() => handleBlur("password")}
-                    placeholder="Account password"
-                    error={errors.password}
-                    autoComplete="new-password"
-                  />
-                </>
-              )}
             </div>
           </CardContent>
         </Card>
@@ -494,13 +463,6 @@ export function ProfileForm({
               ]}
               error={errors.entryScript}
             />
-            <Input
-              id="infoTag"
-              label="Info Tag"
-              value={infoTag}
-              onChange={(e) => setInfoTag(e.target.value)}
-              placeholder="Info tag for scripts"
-            />
             <Select
               id="keyList"
               label="Key List"
@@ -516,6 +478,21 @@ export function ProfileForm({
               onChange={(e) => setRunsPerKey(Number(e.target.value))}
               min={0}
             />
+            <div className="flex items-center gap-2 pt-6">
+              <input
+                id="switchKeysOnRestart"
+                type="checkbox"
+                checked={switchKeysOnRestart}
+                onChange={(e) => setSwitchKeysOnRestart(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-700 bg-zinc-800 text-d2-gold focus:ring-d2-gold"
+              />
+              <label
+                htmlFor="switchKeysOnRestart"
+                className="text-sm text-zinc-400"
+              >
+                Switch keys on restart
+              </label>
+            </div>
             <Select
               id="schedule"
               label="Schedule"
@@ -538,21 +515,13 @@ export function ProfileForm({
                 Schedule enabled
               </label>
             </div>
-            <div className="flex items-center gap-2 pt-6">
-              <input
-                id="switchKeysOnRestart"
-                type="checkbox"
-                checked={switchKeysOnRestart}
-                onChange={(e) => setSwitchKeysOnRestart(e.target.checked)}
-                className="h-4 w-4 rounded border-zinc-700 bg-zinc-800 text-d2-gold focus:ring-d2-gold"
-              />
-              <label
-                htmlFor="switchKeysOnRestart"
-                className="text-sm text-zinc-400"
-              >
-                Switch keys on restart
-              </label>
-            </div>
+            <Input
+              id="infoTag"
+              label="Info Tag"
+              value={infoTag}
+              onChange={(e) => setInfoTag(e.target.value)}
+              placeholder="Info tag for scripts"
+            />
           </CardContent>
         </Card>
 

@@ -92,13 +92,28 @@ const transport = createGrpcWebTransport({
 });
 
 /**
+ * Transport for unary command/mutation RPCs, with a client-side deadline so a
+ * stuck call (e.g. a window command against a hung game) can never spin the UI
+ * forever — a safety net on top of the backend's non-blocking calls. These
+ * commands return promptly (Start backgrounds the launch rather than waiting on
+ * the startup semaphore; Stop is bounded by the ~5s graceful-shutdown grace), so
+ * 10s is ample. Genuinely slow external calls (e.g. TestDiscord) pass a longer
+ * per-call timeoutMs. NOT used for the long-lived event stream or update streaming.
+ */
+const commandTransport = createGrpcWebTransport({
+  baseUrl: getBaseUrl(),
+  interceptors: [authInterceptor],
+  defaultTimeoutMs: 10000,
+});
+
+/**
  * Profile management client
  * - CRUD operations for bot profiles
  * - Start/Stop/Restart controls
  * - Window visibility controls
  * - Status streaming
  */
-export const profileClient = createClient(ProfileService, transport);
+export const profileClient = createClient(ProfileService, commandTransport);
 
 /**
  * CD Key management client
@@ -106,26 +121,26 @@ export const profileClient = createClient(ProfileService, transport);
  * - Key hold/release operations
  * - Key status dashboard
  */
-export const keyClient = createClient(KeyService, transport);
+export const keyClient = createClient(KeyService, commandTransport);
 
 /**
  * Schedule management client
  * - Schedule CRUD operations
  * - Import/Export functionality
  */
-export const scheduleClient = createClient(ScheduleService, transport);
+export const scheduleClient = createClient(ScheduleService, commandTransport);
 
 /**
  * Server settings client
  * - Get/Update server configuration
  */
-export const settingsClient = createClient(SettingsService, transport);
+export const settingsClient = createClient(SettingsService, commandTransport);
 
 /**
  * File browser client
  * - Remote directory listing for D2 path selection
  */
-export const fileClient = createClient(FileService, transport);
+export const fileClient = createClient(FileService, commandTransport);
 
 /**
  * Update service client
@@ -146,10 +161,10 @@ export const eventClient = createClient(EventService, transport);
  * - List entities (characters/directories)
  * - Search items with filters
  */
-export const itemClient = createClient(ItemService, transport);
+export const itemClient = createClient(ItemService, commandTransport);
 
 /**
  * Logging configuration client
  * - Get/Set per-logger log levels for UI console
  */
-export const loggingClient = createClient(LoggingService, transport);
+export const loggingClient = createClient(LoggingService, commandTransport);

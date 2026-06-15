@@ -5,7 +5,7 @@
  * Includes bulk actions and a table of all profiles.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Button,
@@ -69,6 +69,17 @@ export function ProfilesPage() {
   const [selectedProfiles, setSelectedProfiles] = useState<Set<string>>(
     new Set(),
   );
+
+  // Escape clears the multi-select, unless a dialog is open (Escape closes it instead).
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (document.querySelector('[role="dialog"]')) return;
+      setSelectedProfiles((prev) => (prev.size > 0 ? new Set() : prev));
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   // Single-profile delete dialog
   const {

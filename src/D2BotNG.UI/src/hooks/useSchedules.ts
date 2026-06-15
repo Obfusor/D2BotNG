@@ -30,9 +30,6 @@ export function useCreateSchedule() {
       const request = create(ScheduleSchema, schedule);
       await scheduleClient.create(request);
     },
-    onSuccess: () => {
-      toast.success("Schedule created");
-    },
     onError: (error) => {
       toast.error("Failed to create schedule", error.message);
     },
@@ -49,9 +46,6 @@ export function useUpdateSchedule() {
       const request = create(UpdateScheduleRequestSchema, input);
       await scheduleClient.update(request);
     },
-    onSuccess: () => {
-      toast.success("Schedule updated");
-    },
     onError: (error) => {
       toast.error("Failed to update schedule", error.message);
     },
@@ -67,9 +61,6 @@ export function useDeleteSchedule() {
     mutationFn: async (name: string) => {
       const request = create(ScheduleNameSchema, { name });
       await scheduleClient.delete(request);
-    },
-    onSuccess: () => {
-      toast.success("Schedule deleted");
     },
     onError: (error) => {
       toast.error("Failed to delete schedule", error.message);

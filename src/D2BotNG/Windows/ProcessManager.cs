@@ -209,28 +209,41 @@ public class ProcessManager : IDisposable
 
     public void ShowWindow(nint hwnd)
     {
-        NativeMethods.ShowWindow(hwnd, SW_SHOW);
+        // Async variants post the request to the window's thread and return
+        // immediately, so a hung game window can never block the caller (the
+        // synchronous ShowWindow/SetWindowPos would block until USER32 gives up).
+        NativeMethods.ShowWindowAsync(hwnd, SW_SHOW);
     }
 
     public void HideWindow(nint hwnd)
     {
-        NativeMethods.ShowWindow(hwnd, SW_HIDE);
+        NativeMethods.ShowWindowAsync(hwnd, SW_HIDE);
     }
 
     public void SetWindowTitle(nint hwnd, string title)
     {
-        SetWindowText(hwnd, title);
+        // Bounded WM_SETTEXT (the string is marshaled cross-process) rather than
+        // SetWindowText, which sends synchronously and blocks on a hung window.
+        var ptr = Marshal.StringToHGlobalUni(title);
+        try
+        {
+            SendMessageTimeoutW(hwnd, WM_SETTEXT, 0, ptr, SMTO_ABORTIFHUNG, 1000, out _);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(ptr);
+        }
     }
 
     public void MoveWindow(nint hwnd, int x, int y)
     {
-        SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_ASYNCWINDOWPOS);
     }
 
 
     public void ShowWindowAt(nint hwnd, int x, int y)
     {
-        SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+        SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_ASYNCWINDOWPOS);
     }
 
     public IEnumerable<nint> FindWindowsByTitle(string title)

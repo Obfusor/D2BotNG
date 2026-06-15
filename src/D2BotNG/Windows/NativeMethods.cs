@@ -121,11 +121,11 @@ public static class NativeMethods
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern ushort RegisterClassExW(ref WNDCLASSEXW lpwcx);
 
+    // Async (non-blocking) show: posts the request to the window's thread and
+    // returns immediately, so a hung game window can't block the caller. The
+    // synchronous ShowWindow is intentionally not declared — it blocks on a hung window.
     [DllImport("user32.dll")]
-    public static extern bool ShowWindow(nint hWnd, int nCmdShow);
-
-    [DllImport("user32.dll")]
-    public static extern bool SetWindowText(nint hWnd, string lpString);
+    public static extern bool ShowWindowAsync(nint hWnd, int nCmdShow);
 
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -183,6 +183,11 @@ public static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(nint hWnd);
+
+    // True when the window has stopped pumping messages (OS hang detection, ~5s).
+    // Non-blocking — detects a frozen game whose background heartbeat thread may still tick.
+    [DllImport("user32.dll")]
+    public static extern bool IsHungAppWindow(nint hWnd);
 
 
     #endregion

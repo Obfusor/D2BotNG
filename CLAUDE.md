@@ -242,6 +242,8 @@ Item/mule data lives in `d2bs/kolbot/mules/` (*.txt files, watched by FileSystem
   `dotnet build -p:RunFormat=true -p:RunInspect=true -p:SkipUIBuild=true` then review `src/D2BotNG/obj/inspect.sarif`
 - **If no UI changes were made**, skip the UI build for faster iteration:
   `dotnet build -p:SkipUIBuild=true`
+- **After making UI changes**, run ESLint AND Prettier — they are separate CI gates and `npm run lint` does NOT include Prettier (neither does `npm run build`, which runs ESLint + `tsc`):
+  `npm run lint && npx prettier --check "src/**/*.{ts,tsx,css}"` (use `npm run format` to auto-fix)
 
 ## CI/CD (GitHub Actions)
 

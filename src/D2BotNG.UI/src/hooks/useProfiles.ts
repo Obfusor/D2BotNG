@@ -30,10 +30,6 @@ export function useCreateProfile() {
       const request = create(ProfileSchema, profile);
       await profileClient.create(request);
     },
-    onSuccess: () => {
-      // Data arrives via event stream - no need to invalidate queries
-      toast.success("Profile created");
-    },
     onError: (error) => {
       toast.error("Failed to create profile", error.message);
     },
@@ -49,10 +45,6 @@ export function useUpdateProfile() {
     mutationFn: async (input: UpdateProfileInput) => {
       const request = create(UpdateProfileRequestSchema, input);
       await profileClient.update(request);
-    },
-    onSuccess: () => {
-      // Data arrives via event stream - no need to invalidate queries
-      toast.success("Profile updated");
     },
     onError: (error) => {
       toast.error("Failed to update profile", error.message);

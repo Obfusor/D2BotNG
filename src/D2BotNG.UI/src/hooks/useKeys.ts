@@ -31,9 +31,6 @@ export function useCreateKeyList() {
       const request = create(KeyListSchema, keyList);
       await keyClient.createKeyList(request);
     },
-    onSuccess: () => {
-      toast.success("Key list created");
-    },
     onError: (error) => {
       toast.error("Failed to create key list", error.message);
     },
@@ -50,9 +47,6 @@ export function useUpdateKeyList() {
       const request = create(UpdateKeyListRequestSchema, input);
       await keyClient.updateKeyList(request);
     },
-    onSuccess: () => {
-      toast.success("Key list updated");
-    },
     onError: (error) => {
       toast.error("Failed to update key list", error.message);
     },
@@ -68,9 +62,6 @@ export function useDeleteKeyList() {
     mutationFn: async (name: string) => {
       const request = create(KeyListNameSchema, { name });
       await keyClient.deleteKeyList(request);
-    },
-    onSuccess: () => {
-      toast.success("Key list deleted");
     },
     onError: (error) => {
       toast.error("Failed to delete key list", error.message);

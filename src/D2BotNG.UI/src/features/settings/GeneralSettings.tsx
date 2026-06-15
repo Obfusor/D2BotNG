@@ -20,6 +20,7 @@ import type { ServerSettings as ServerSettingsType } from "@/generated/settings_
 import type { GameSettings as GameSettingsType } from "@/generated/settings_pb";
 import type { DisplaySettings as DisplaySettingsType } from "@/generated/settings_pb";
 import type { StartupSettings as StartupSettingsType } from "@/generated/settings_pb";
+import type { EngineSettings as EngineSettingsType } from "@/generated/settings_pb";
 
 interface GeneralSettingsProps {
   /** Current server settings */
@@ -30,6 +31,8 @@ interface GeneralSettingsProps {
   display?: Partial<DisplaySettingsType>;
   /** Current startup pacing settings */
   startup?: Partial<StartupSettingsType>;
+  /** Current engine health & crash-recovery thresholds */
+  engine?: Partial<EngineSettingsType>;
   /** Whether to start minimized */
   startMinimized: boolean;
   /** Whether the minimize button hides to the system tray (vs taskbar) */
@@ -46,6 +49,8 @@ interface GeneralSettingsProps {
   onDisplayChange: (display: Partial<DisplaySettingsType>) => void;
   /** Callback when startup pacing changes */
   onStartupChange: (startup: Partial<StartupSettingsType>) => void;
+  /** Callback when engine health thresholds change */
+  onEngineChange: (engine: Partial<EngineSettingsType>) => void;
   /** Callback when start minimized changes */
   onStartMinimizedChange: (value: boolean) => void;
   /** Callback when minimize-to-tray changes */
@@ -73,6 +78,7 @@ export function GeneralSettings({
   game,
   display,
   startup,
+  engine,
   startMinimized,
   minimizeToTray,
   closeAction,
@@ -81,6 +87,7 @@ export function GeneralSettings({
   onGameChange,
   onDisplayChange,
   onStartupChange,
+  onEngineChange,
   onStartMinimizedChange,
   onMinimizeToTrayChange,
   onCloseActionChange,
@@ -305,6 +312,79 @@ export function GeneralSettings({
               const value = parseInt(e.target.value, 10);
               onStartupChange({
                 delayMs: isNaN(value) ? 0 : Math.max(0, value),
+              });
+            }}
+          />
+        </div>
+
+        {/* Crash recovery & heartbeat monitoring */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Input
+            id="heartbeat-timeout-seconds"
+            label="Heartbeat Timeout (s)"
+            tooltip="How long a bot can go without sending a heartbeat before it counts as a miss. Default 30."
+            type="number"
+            min={1}
+            placeholder="30"
+            autoComplete="off"
+            value={(engine?.heartbeatTimeoutSeconds || 30).toString()}
+            onChange={(e) => {
+              const value = parseInt(e.target.value, 10);
+              onEngineChange({
+                heartbeatTimeoutSeconds: isNaN(value) ? 0 : Math.max(1, value),
+              });
+            }}
+          />
+
+          <Input
+            id="max-missed-heartbeats"
+            label="Missed Heartbeats"
+            tooltip="Consecutive missed heartbeats before a bot is killed and restarted. Default 3."
+            type="number"
+            min={1}
+            placeholder="3"
+            autoComplete="off"
+            value={(engine?.maxMissedHeartbeats || 3).toString()}
+            onChange={(e) => {
+              const value = parseInt(e.target.value, 10);
+              onEngineChange({
+                maxMissedHeartbeats: isNaN(value) ? 0 : Math.max(1, value),
+              });
+            }}
+          />
+
+          <Input
+            id="max-crash-retries"
+            label="Crash Retries"
+            tooltip="How many times a bot is restarted after crashing before giving up and disabling its schedule. Default 5."
+            type="number"
+            min={1}
+            placeholder="5"
+            autoComplete="off"
+            value={(engine?.maxCrashRetries || 5).toString()}
+            onChange={(e) => {
+              const value = parseInt(e.target.value, 10);
+              onEngineChange({
+                maxCrashRetries: isNaN(value) ? 0 : Math.max(1, value),
+              });
+            }}
+          />
+
+          <Input
+            id="unresponsive-timeout-seconds"
+            label="Unresponsive Timeout (s)"
+            tooltip="Kill and restart a game whose window stops responding (frozen / hung) for this long, even if heartbeats still arrive. Default 30."
+            type="number"
+            min={1}
+            placeholder="30"
+            autoComplete="off"
+            value={(engine?.unresponsiveTimeoutSeconds || 30).toString()}
+            onChange={(e) => {
+              const value = parseInt(e.target.value, 10);
+              onEngineChange({
+                unresponsiveTimeoutSeconds: isNaN(value)
+                  ? 0
+                  : Math.max(1, value),
               });
             }}
           />

@@ -124,6 +124,11 @@ public class SettingsRepository
         }
 
         settings.Startup ??= new StartupSettings();
+        settings.Engine ??= new EngineSettings();
+        if (settings.Engine.HeartbeatTimeoutSeconds <= 0) settings.Engine.HeartbeatTimeoutSeconds = 30;
+        if (settings.Engine.MaxMissedHeartbeats <= 0) settings.Engine.MaxMissedHeartbeats = 3;
+        if (settings.Engine.MaxCrashRetries <= 0) settings.Engine.MaxCrashRetries = 5;
+        if (settings.Engine.UnresponsiveTimeoutSeconds <= 0) settings.Engine.UnresponsiveTimeoutSeconds = 30;
     }
 
     public async Task<Settings> GetAsync()
@@ -137,6 +142,7 @@ public class SettingsRepository
         await _lock.WaitAsync();
         try
         {
+            EnsureDefaults(settings);
             _settings = settings;
             await SaveInternalAsync();
             SettingsChanged?.Invoke(this, settings);

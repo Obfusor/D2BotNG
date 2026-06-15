@@ -26,9 +26,10 @@ public class ProfileEngine
     private readonly ConcurrentDictionary<string, ProfileInstance> _instances = new();
     private readonly ConcurrentDictionary<nint, string> _handleToProfile = new();
 
-    private const int MaxCrashRetries = 5;
-    private const int HeartbeatTimeoutSeconds = 30;
-    private const int MaxMissedHeartbeats = 3;
+    private volatile int _maxCrashRetries;
+    private volatile int _heartbeatTimeoutSeconds;
+    private volatile int _maxMissedHeartbeats;
+    private volatile int _unresponsiveTimeoutSeconds;
 
     // Startup pacing. Profiles entering RunProfileAsync wait their turn on
     // _startupSemaphore (if set), wait _startupDelayMs (with a 1Hz countdown),
@@ -63,11 +64,11 @@ public class ProfileEngine
         _messageWindow = messageWindow;
         _paths = paths;
 
-        ApplyStartupSettings(settingsRepository.GetAsync().GetAwaiter().GetResult());
-        settingsRepository.SettingsChanged += (_, s) => ApplyStartupSettings(s);
+        ApplySettings(settingsRepository.GetAsync().GetAwaiter().GetResult());
+        settingsRepository.SettingsChanged += (_, s) => ApplySettings(s);
     }
 
-    private void ApplyStartupSettings(Settings settings)
+    private void ApplySettings(Settings settings)
     {
         var concurrency = Math.Max(0, settings.Startup?.Concurrency ?? 0);
         _startupDelayMs = Math.Max(0, settings.Startup?.DelayMs ?? 0);
@@ -75,6 +76,13 @@ public class ProfileEngine
         // Replace the semaphore; in-flight starts already hold a reference to the previous
         // instance and will release it correctly. New starts use the fresh one.
         _startupSemaphore = concurrency > 0 ? new SemaphoreSlim(concurrency, concurrency) : null;
+
+        // Health thresholds — SettingsRepository guarantees Engine is populated.
+        var engine = settings.Engine!;
+        _heartbeatTimeoutSeconds = engine.HeartbeatTimeoutSeconds;
+        _maxMissedHeartbeats = engine.MaxMissedHeartbeats;
+        _maxCrashRetries = engine.MaxCrashRetries;
+        _unresponsiveTimeoutSeconds = engine.UnresponsiveTimeoutSeconds;
     }
 
     private Task RunProfileBackgroundAsync(ProfileInstance instance)
@@ -706,38 +714,68 @@ public class ProfileEngine
                 lastHeartbeatCheck = now;
 
                 var elapsed = (now - (instance.LastHeartbeat ?? instance.StartedAt!.Value)).TotalSeconds;
-                if (elapsed > HeartbeatTimeoutSeconds)
+                if (elapsed > _heartbeatTimeoutSeconds)
                 {
                     process.SendMessage((MessageType)_messageWindow.Handle, "Handle");
                     instance.MissedHeartbeats++;
                     _logger.LogWarning("Profile {Name} missed heartbeat ({Count}/{Max})",
-                        instance.ProfileName, instance.MissedHeartbeats, MaxMissedHeartbeats);
+                        instance.ProfileName, instance.MissedHeartbeats, _maxMissedHeartbeats);
 
-                    if (instance.MissedHeartbeats >= MaxMissedHeartbeats)
+                    if (instance.MissedHeartbeats >= _maxMissedHeartbeats)
                     {
-                        _logger.LogWarning("Profile {Name} not responding, treating as crash",
-                            instance.ProfileName);
-
-                        _handleToProfile.TryRemove(process.GameWindow, out _);
-
-                        // Kill the unresponsive process. Pass the cancellation token so that
-                        // if the user clicks Stop while we're waiting out the WM_CLOSE grace
-                        // period, the wait aborts and we force-kill immediately instead of
-                        // making the user sit through up to 5s of "the sleep isn't interruptible".
-                        await _processManager.TerminateAsync(process, TimeSpan.FromSeconds(5), cancellationToken);
-
-                        // Treat as crash — restart instead of stopping
-                        instance.MissedHeartbeats = 0;
-                        await instance.SetErrorAsync("Process not responding");
-                        await NotifyProfileStateChangedAsync(instance.ProfileName);
-                        await HandleCrashAsync(instance, cancellationToken);
+                        await KillUnresponsiveAndRecoverAsync(
+                            instance, process, "Process not responding", cancellationToken);
                         return;
                     }
                 }
             }
 
+            // Independent of the heartbeat: if the game window stops pumping messages
+            // (OS-level "not responding") continuously past the timeout, the bot is hung
+            // even though kolbot's background heartbeat thread may still be ticking.
+            // Mirrors the reference manager's Process.Responding watchdog.
+            var hwnd = process.GameWindow;
+            if (hwnd != 0 && NativeMethods.IsHungAppWindow(hwnd))
+            {
+                instance.UnresponsiveSince ??= now;
+                if ((now - instance.UnresponsiveSince.Value).TotalSeconds >= _unresponsiveTimeoutSeconds)
+                {
+                    await KillUnresponsiveAndRecoverAsync(
+                        instance, process, "Game window not responding", cancellationToken);
+                    return;
+                }
+            }
+            else
+            {
+                instance.UnresponsiveSince = null;
+            }
+
             await Task.Delay(1000, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Kills an unresponsive/crashed game and routes it through crash recovery
+    /// (restart unless it has exceeded the retry budget). Shared by the missed-heartbeat
+    /// and hung-window watchdogs.
+    /// </summary>
+    private async Task KillUnresponsiveAndRecoverAsync(
+        ProfileInstance instance, Process process, string reason, CancellationToken cancellationToken)
+    {
+        _logger.LogWarning("Profile {Name} {Reason}, treating as crash", instance.ProfileName, reason);
+        _handleToProfile.TryRemove(process.GameWindow, out _);
+
+        // Kill the unresponsive process. Pass the cancellation token so that if the user
+        // clicks Stop while we're waiting out the WM_CLOSE grace period, the wait aborts
+        // and we force-kill immediately instead of sitting through up to 5s of sleep.
+        await _processManager.TerminateAsync(process, TimeSpan.FromSeconds(5), cancellationToken);
+
+        // Treat as crash — restart instead of stopping.
+        instance.MissedHeartbeats = 0;
+        instance.UnresponsiveSince = null;
+        await instance.SetErrorAsync(reason);
+        await NotifyProfileStateChangedAsync(instance.ProfileName);
+        await HandleCrashAsync(instance, cancellationToken);
     }
 
     private async Task HandleCrashAsync(ProfileInstance instance, CancellationToken cancellationToken)
@@ -753,10 +791,10 @@ public class ProfileEngine
             await NotifyProfileStateChangedAsync(profileName, includeProfile: true);
         }
 
-        if (instance.CrashCount < MaxCrashRetries)
+        if (instance.CrashCount < _maxCrashRetries)
         {
             _logger.LogWarning("Profile {Name} crashed, restarting ({Count}/{Max})",
-                profileName, instance.CrashCount, MaxCrashRetries);
+                profileName, instance.CrashCount, _maxCrashRetries);
 
             try
             {
@@ -796,7 +834,7 @@ public class ProfileEngine
 
             // Set error status before transitioning to Stopped so the message is preserved.
             // Do NOT use SetErrorAsync here — it would set state to Error, allowing restarts.
-            instance.Status = $"Exceeded max crash retries ({MaxCrashRetries})";
+            instance.Status = $"Exceeded max crash retries ({_maxCrashRetries})";
             instance.KeyName = null;
             await instance.TransitionToAsync(RunState.Stopped);
             await NotifyProfileStateChangedAsync(profileName, includeProfile: true);

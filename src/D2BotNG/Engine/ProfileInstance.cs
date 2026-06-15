@@ -20,6 +20,9 @@ public class ProfileInstance : IDisposable
     public int CrashCount { get; set; }
     public int MissedHeartbeats { get; set; }
 
+    /// <summary>When the game window first became continuously unresponsive; null while responsive.</summary>
+    public DateTime? UnresponsiveSince { get; set; }
+
     private readonly SemaphoreSlim _stateLock = new(1, 1);
     private CancellationTokenSource? _runCts;
 
@@ -54,6 +57,7 @@ public class ProfileInstance : IDisposable
         Process = process;
         StartedAt = DateTime.UtcNow;
         LastHeartbeat = null;
+        UnresponsiveSince = null;
     }
 
     public void UpdateHeartbeat()

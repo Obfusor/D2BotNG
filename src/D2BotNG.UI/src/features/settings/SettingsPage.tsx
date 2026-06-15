@@ -18,6 +18,7 @@ import type {
   GameSettings as GameSettingsType,
   LegacyApiSettings as LegacyApiSettingsType,
   StartupSettings as StartupSettingsType,
+  EngineSettings as EngineSettingsType,
 } from "@/generated/settings_pb";
 import {
   CloseAction,
@@ -140,6 +141,21 @@ export function SettingsPage() {
         return {
           ...prev,
           startup: { ...prev.startup, ...updates } as StartupSettingsType,
+        };
+      });
+      setIsDirty(true);
+    },
+    [],
+  );
+
+  // Handler for engine health & crash-recovery thresholds
+  const handleEngineChange = useCallback(
+    (updates: Partial<EngineSettingsType>) => {
+      setLocalSettings((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          engine: { ...prev.engine, ...updates } as EngineSettingsType,
         };
       });
       setIsDirty(true);
@@ -303,6 +319,7 @@ export function SettingsPage() {
               game={localSettings.game}
               display={localSettings.display}
               startup={localSettings.startup}
+              engine={localSettings.engine}
               startMinimized={localSettings.startMinimized}
               minimizeToTray={localSettings.minimizeToTray ?? true}
               closeAction={localSettings.closeAction}
@@ -311,6 +328,7 @@ export function SettingsPage() {
               onGameChange={handleGameChange}
               onDisplayChange={handleDisplayChange}
               onStartupChange={handleStartupChange}
+              onEngineChange={handleEngineChange}
               onStartMinimizedChange={handleStartMinimizedChange}
               onMinimizeToTrayChange={handleMinimizeToTrayChange}
               onCloseActionChange={handleCloseActionChange}

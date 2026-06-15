@@ -27,9 +27,6 @@ export function useRemoveItem() {
       });
       await itemClient.removeItem(request);
     },
-    onSuccess: () => {
-      toast.success("Item removed");
-    },
     onError: (error) => {
       toast.error("Failed to remove item", error.message);
     },

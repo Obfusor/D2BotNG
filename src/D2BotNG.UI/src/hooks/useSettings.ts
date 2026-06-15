@@ -24,9 +24,6 @@ export function useUpdateSettings() {
       const request = create(SettingsSchema, settings);
       await settingsClient.update(request);
     },
-    onSuccess: () => {
-      toast.success("Settings saved", "Your settings have been updated.");
-    },
     onError: (error) => {
       toast.error("Failed to save settings", error.message);
     },
@@ -44,7 +41,11 @@ export function useTestDiscord() {
   return useMutation({
     mutationFn: async (input: TestDiscordInput) => {
       const request = create(DiscordSettingsSchema, input);
-      const response = await settingsClient.testDiscord(request);
+      // Discord login/connection test is an external round-trip — allow more
+      // time than the default command deadline.
+      const response = await settingsClient.testDiscord(request, {
+        timeoutMs: 30000,
+      });
       if (!response.success) {
         throw new Error(response.message);
       }
