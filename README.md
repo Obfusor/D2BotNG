@@ -10,6 +10,16 @@ A modern rewrite of D2Bot - a Diablo II bot manager. Built with .NET 10 and Reac
 
 ![Items](images/items.png)
 
+### Character viewer
+
+![Equipment and inventory](images/viewer1.png)
+
+![Stats, skills](images/viewer2.png)
+
+![Quest and waypoint progression](images/viewer3.png)
+
+![Analytics](images/viewer4.png)
+
 ## Getting Started
 
 Download the latest release from the [Releases](../../releases) page. Two versions are available:
@@ -59,6 +69,10 @@ No manual steps are required. To force re-migration of a specific file, delete i
 
 ## Features
 
+> **Character Viewer** and **SOCKS5 Proxy** require the **d2bsng** engine (the modern C++ D2BS rewrite that reports character-state telemetry and supports proxy hooking). They stay inactive on legacy D2BS; everything else works on both.
+
+- **Character Viewer** *(d2bsng)* - Live per-character equipment, inventory, stash, stats, skills, and quest/waypoint progression, plus analytics: lifetime monster kills and time spent per area.
+- **SOCKS5 Proxy** *(d2bsng)* - Per-profile SOCKS5 proxy routing with a central Proxies tab for management, bulk import, and live connection testing.
 - **Web UI** - React frontend with Tailwind CSS, dark Diablo-inspired theme
 - **Remote Access** - Password-protected web interface accessible from anywhere
 - **Real-time Updates** - gRPC streaming for live profile status, console output, item drops
