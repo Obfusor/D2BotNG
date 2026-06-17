@@ -79,7 +79,32 @@ public abstract class FileRepository<TItem, TList> : IDisposable
 
         var tempPath = FilePath + ".tmp";
         await File.WriteAllTextAsync(tempPath, json);
-        File.Move(tempPath, FilePath, overwrite: true);
+        await ReplaceFileWithRetryAsync(tempPath, FilePath);
+    }
+
+    /// <summary>
+    /// Atomically replace <paramref name="finalPath"/> with <paramref name="tempPath"/>.
+    /// The rename can transiently fail with UnauthorizedAccessException/IOException when another
+    /// process (antivirus, the search indexer, an editor) briefly holds the file open — common for
+    /// the frequently-rewritten characters.json — so retry a few times with a short backoff before
+    /// surfacing the error.
+    /// </summary>
+    private static async Task ReplaceFileWithRetryAsync(string tempPath, string finalPath)
+    {
+        const int maxAttempts = 5;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(tempPath, finalPath, overwrite: true);
+                return;
+            }
+            catch (Exception ex)
+                when ((ex is IOException or UnauthorizedAccessException) && attempt < maxAttempts)
+            {
+                await Task.Delay(50 * attempt);
+            }
+        }
     }
 
     /// <summary>
