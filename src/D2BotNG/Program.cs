@@ -31,6 +31,12 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // Advertise D2BotNG's presence + version to injected d2bsng
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        Environment.SetEnvironmentVariable(
+            "D2BOTNG_VERSION",
+            version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "0.0.0");
+
         var headless = args.Contains("--headless");
         var devUi = args.Contains("--dev-ui");
         var handoffContext = BuildHandoffContext(args);
