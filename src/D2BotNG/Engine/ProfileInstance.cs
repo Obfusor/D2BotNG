@@ -67,7 +67,9 @@ public class ProfileInstance : IDisposable
     {
         LastHeartbeat = DateTime.UtcNow;
         MissedHeartbeats = 0;
-        CrashCount = 0;
+        // CrashCount is deliberately NOT reset here: a crash-looping bot that emits even one
+        // heartbeat between failures would otherwise zero its budget and never reach
+        // MaxCrashRetries. It is reset only on a manual start (ProfileEngine.StartProfileAsync).
     }
 
     /// <summary>

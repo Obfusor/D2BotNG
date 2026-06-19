@@ -783,7 +783,7 @@ public class ProfileEngine
             // even though kolbot's background heartbeat thread may still be ticking.
             // Mirrors the reference manager's Process.Responding watchdog.
             var hwnd = process.GameWindow;
-            if (hwnd != 0 && NativeMethods.IsHungAppWindow(hwnd))
+            if (hwnd != 0 && IsGameWindowHung(hwnd))
             {
                 instance.UnresponsiveSince ??= now;
                 if ((now - instance.UnresponsiveSince.Value).TotalSeconds >= _unresponsiveTimeoutSeconds)
@@ -800,6 +800,20 @@ public class ProfileEngine
 
             await Task.Delay(1000, cancellationToken);
         }
+    }
+
+    // IsHungAppWindow is a passive OS heuristic (~5s) that can miss hangs on fullscreen/
+    // DirectDraw game windows. Back it with an active WM_NULL ping — a no-op the window must
+    // service from its message loop, so a timeout proves it isn't pumping. Short-circuits on
+    // IsHungAppWindow, and SMTO_ABORTIFHUNG returns immediately once the OS flags the window, so
+    // the ping only blocks (up to timeoutMs) for a window that is stuck but not yet OS-detected.
+    // Not Process.Responding: it probes Process.MainWindowHandle (a launcher/splash window for
+    // D2, or 0 -> always "responding"); we deliberately probe the class-matched GameWindow.
+    private static bool IsGameWindowHung(nint hwnd, uint timeoutMs = 1000)
+    {
+        if (NativeMethods.IsHungAppWindow(hwnd)) return true;
+        return NativeMethods.SendMessageTimeout(
+            hwnd, NativeTypes.WM_NULL, 0, 0, NativeTypes.SMTO_ABORTIFHUNG, timeoutMs, out _) == 0;
     }
 
     /// <summary>

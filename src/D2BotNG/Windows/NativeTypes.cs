@@ -133,6 +133,7 @@ public static class NativeTypes
     public const uint SWP_ASYNCWINDOWPOS = 0x4000; // Post the request to the window's thread instead of blocking on it.
 
     // Window messages (UINT)
+    public const uint WM_NULL = 0x0000; // no-op; used as a liveness ping via SendMessageTimeout
     public const uint WM_CLOSE = 0x0010;
     public const uint WM_SETTEXT = 0x000C;
     public const uint WM_COPYDATA = 0x004A;
