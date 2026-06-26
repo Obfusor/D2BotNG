@@ -79,8 +79,12 @@ export function parseD2ColoredText(text: string): ColoredTextSegment[] {
     }
   }
 
-  // If no segments created and text has no color codes, return original text
-  if (segments.length === 0 && text && !text.includes(COLOR_PREFIX)) {
+  // If no segments created and text has no color codes, return original text.
+  // Test `normalized` (not the raw `text`): a line that is *only* a native color
+  // marker like "ÿc0" normalizes to the escaped prefix and is fully consumed by
+  // the split above, leaving no segments. Checking the raw text here would miss
+  // the native form and wrongly re-emit the literal "ÿc0" as visible text.
+  if (segments.length === 0 && text && !normalized.includes(COLOR_PREFIX)) {
     segments.push({ text, color: DEFAULT_COLOR });
   }
 
