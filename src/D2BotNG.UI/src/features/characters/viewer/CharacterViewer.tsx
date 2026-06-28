@@ -325,13 +325,36 @@ export function CharacterViewer() {
   );
   const isOnline = (profile: string) => onlineProfiles.has(profile);
 
+  // Online characters first (stable within each group, so the natural order is
+  // otherwise preserved). Drives both the selector dropdown order and the
+  // default selection below.
+  const sortedCharacters = useMemo(
+    () =>
+      [...characters].sort(
+        (a, b) =>
+          (onlineProfiles.has(a.profile) ? 0 : 1) -
+          (onlineProfiles.has(b.profile) ? 0 : 1),
+      ),
+    [characters, onlineProfiles],
+  );
+
   const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
   const selected = useMemo(() => {
-    if (characters.length === 0) return undefined;
+    if (sortedCharacters.length === 0) return undefined;
     return (
-      characters.find((c) => c.profile === selectedProfile) ?? characters[0]
+      sortedCharacters.find((c) => c.profile === selectedProfile) ??
+      sortedCharacters[0]
     );
-  }, [characters, selectedProfile]);
+  }, [sortedCharacters, selectedProfile]);
+
+  // On entering the view, default to the first online character (falling back to
+  // the first character when none are online). We commit that pick to state once
+  // — rather than leaving the selection implicit — so it stays put as profiles
+  // start/stop and the list re-sorts underneath; the user's later picks win.
+  useEffect(() => {
+    if (selectedProfile !== null || sortedCharacters.length === 0) return;
+    setSelectedProfile(sortedCharacters[0].profile);
+  }, [selectedProfile, sortedCharacters]);
 
   if (!selected) {
     return (
@@ -363,7 +386,7 @@ export function CharacterViewer() {
       {/* Header — the character name doubles as the selector */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <CharacterSelector
-          characters={characters}
+          characters={sortedCharacters}
           selected={selected}
           onSelect={setSelectedProfile}
           isOnline={isOnline}

@@ -288,45 +288,67 @@ export function AnalyticsPanel({ character }: { character: Character }) {
   const areas = areaRows(areaForDifficulty(areaTime, selectedDifficulty));
 
   const totalAreaMs = areas.reduce((sum, r) => sum + r.ms, 0);
+  // Grand total across all difficulties, summed the same way as each difficulty's
+  // section total (named areas only) so it equals the sum of the per-difficulty
+  // "Time in Area" totals.
+  const totalPlayedMs = DIFFICULTIES.reduce(
+    (sum, d) =>
+      sum +
+      areaRows(areaForDifficulty(areaTime, d.id)).reduce((s, r) => s + r.ms, 0),
+    0,
+  );
   const totalKills =
     monsters.reduce((sum, r) => sum + r.count, 0) +
     superUniques.reduce((sum, r) => sum + r.count, 0);
 
   return (
     <div className="space-y-6">
-      <div className="inline-flex gap-0.5 rounded-md bg-zinc-800/60 p-0.5 text-xs">
-        {DIFFICULTIES.map((d) => {
-          // Disable difficulties with no data (the active one stays selectable).
-          const enabled = d.id === activeDifficulty || hasData(d.id);
-          return (
-            <button
-              key={d.id}
-              type="button"
-              disabled={!enabled}
-              onClick={() => setSelectedDifficulty(d.id)}
-              title={
-                d.id === activeDifficulty
-                  ? "Last seen difficulty"
-                  : enabled
-                    ? undefined
-                    : "No data"
-              }
-              className={clsx(
-                "relative rounded px-3 py-1 font-medium",
-                !enabled
-                  ? "cursor-not-allowed text-zinc-600"
-                  : selectedDifficulty === d.id
-                    ? "bg-zinc-700 text-zinc-100"
-                    : "text-zinc-400 hover:text-zinc-200",
-              )}
-            >
-              {d.name}
-              {d.id === activeDifficulty && (
-                <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-green-500" />
-              )}
-            </button>
-          );
-        })}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="inline-flex gap-0.5 rounded-md bg-zinc-800/60 p-0.5 text-xs">
+          {DIFFICULTIES.map((d) => {
+            // Disable difficulties with no data (the active one stays selectable).
+            const enabled = d.id === activeDifficulty || hasData(d.id);
+            return (
+              <button
+                key={d.id}
+                type="button"
+                disabled={!enabled}
+                onClick={() => setSelectedDifficulty(d.id)}
+                title={
+                  d.id === activeDifficulty
+                    ? "Last seen difficulty"
+                    : enabled
+                      ? undefined
+                      : "No data"
+                }
+                className={clsx(
+                  "relative rounded px-3 py-1 font-medium",
+                  !enabled
+                    ? "cursor-not-allowed text-zinc-600"
+                    : selectedDifficulty === d.id
+                      ? "bg-zinc-700 text-zinc-100"
+                      : "text-zinc-400 hover:text-zinc-200",
+                )}
+              >
+                {d.name}
+                {d.id === activeDifficulty && (
+                  <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-green-500" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {totalPlayedMs > 0 && (
+          <span
+            className="text-xs text-zinc-400"
+            title="Time in area summed across all difficulties"
+          >
+            Total played:{" "}
+            <span className="tabular-nums text-zinc-200">
+              {formatMs(totalPlayedMs)}
+            </span>
+          </span>
+        )}
       </div>
 
       {/* Time in Area */}
