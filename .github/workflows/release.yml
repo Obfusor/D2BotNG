@@ -256,6 +256,33 @@ jobs:
         run: |
           mv artifacts/exe-standalone/D2BotNG.exe D2BotNG-standalone.exe
           mv artifacts/exe-framework/D2BotNG.exe D2BotNG-framework.exe
+      - name: Generate release notes
+        shell: bash
+        run: |
+          v="v${{ needs.prepare-release.outputs.version }}"
+          repo_url="${{ github.server_url }}/${{ github.repository }}"
+
+          # We push straight to main, so there are no PRs for `--generate-notes`
+          # to summarize - it would produce empty notes. Build the notes ourselves
+          # from the commits since the previous tag, each linking to its commit.
+          # Compute prev BEFORE creating this release's tag so it's the prior
+          # release, not the one we are about to make. Empty on the first release.
+          prev=$(git tag | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+
+          bt='`'
+          fmt="- %s ([${bt}%h${bt}](${repo_url}/commit/%H))"
+          range="HEAD"
+          [ -n "$prev" ] && range="${prev}..HEAD"
+          {
+            echo "## Commits"
+            echo
+            git log --no-merges --pretty=format:"$fmt" "$range"
+            echo
+            if [ -n "$prev" ]; then
+              echo
+              echo "**Full Changelog**: ${repo_url}/compare/${prev}...${v}"
+            fi
+          } > notes.md
       - name: Create tag
         shell: bash
         run: |
@@ -267,4 +294,4 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "v${{ needs.prepare-release.outputs.version }}" --generate-notes --title "v${{ needs.prepare-release.outputs.version }}" D2BotNG-standalone.exe D2BotNG-framework.exe
+        run: gh release create "v${{ needs.prepare-release.outputs.version }}" --notes-file notes.md --title "v${{ needs.prepare-release.outputs.version }}" D2BotNG-standalone.exe D2BotNG-framework.exe

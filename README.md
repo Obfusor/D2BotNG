@@ -6,19 +6,25 @@ A modern rewrite of D2Bot - a Diablo II bot manager. Built with .NET 10 and Reac
 
 ## Screenshots
 
-![Profiles](images/profiles.png)
-
-![Items](images/items.png)
+<table>
+  <tr>
+    <td width="50%"><img src="images/profiles.png" alt="Profiles"><br><sub><b>Profiles</b> - manage bot instances with live status, run stats, and bulk actions</sub></td>
+    <td width="50%"><img src="images/items.png" alt="Items"><br><sub><b>Items</b> - search muled items with DC6-rendered sprites and D2 tooltips</sub></td>
+  </tr>
+</table>
 
 ### Character viewer
 
-![Equipment and inventory](images/viewer1.png)
-
-![Stats, skills](images/viewer2.png)
-
-![Quest and waypoint progression](images/viewer3.png)
-
-![Analytics](images/viewer4.png)
+<table>
+  <tr>
+    <td width="50%"><img src="images/viewer1.png" alt="Equipment and inventory"><br><sub><b>Equipment &amp; inventory</b> - live gear, inventory, and stash</sub></td>
+    <td width="50%"><img src="images/viewer2.png" alt="Stats and skills"><br><sub><b>Stats &amp; skills</b> - attributes and skill allocation</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="images/viewer3.png" alt="Quest and waypoint progression"><br><sub><b>Quests &amp; waypoints</b> - per-character progression</sub></td>
+    <td width="50%"><img src="images/viewer4.png" alt="Analytics"><br><sub><b>Analytics</b> - lifetime kills and time spent per area</sub></td>
+  </tr>
+</table>
 
 ## Getting Started
 
